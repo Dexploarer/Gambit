@@ -19,6 +19,7 @@ export interface EngineOptions {
   hostDeck: string[];
   awayDeck: string[];
   firstPlayer?: Seat;
+  seed?: number;
 }
 
 export interface Engine {
@@ -29,8 +30,19 @@ export interface Engine {
   evolve(events: EngineEvent[]): void;
 }
 
+function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export function createEngine(options: EngineOptions): Engine {
   const config: EngineConfig = { ...DEFAULT_CONFIG, ...options.config };
+  const rng = options.seed !== undefined ? mulberry32(options.seed) : undefined;
   let state = createInitialState(
     options.cardLookup,
     config,
@@ -38,7 +50,8 @@ export function createEngine(options: EngineOptions): Engine {
     options.awayId,
     options.hostDeck,
     options.awayDeck,
-    options.firstPlayer ?? "host"
+    options.firstPlayer ?? "host",
+    rng
   );
 
   return {
@@ -52,10 +65,11 @@ export function createEngine(options: EngineOptions): Engine {
   };
 }
 
-function shuffle<T>(arr: T[]): T[] {
+function shuffle<T>(arr: T[], rng?: () => number): T[] {
   const copy = [...arr];
+  const random = rng ?? Math.random;
   for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
@@ -68,10 +82,11 @@ export function createInitialState(
   awayId: string,
   hostDeckIds: string[],
   awayDeckIds: string[],
-  firstPlayer: Seat
+  firstPlayer: Seat,
+  rng?: () => number
 ): GameState {
-  const hostDeck = shuffle(hostDeckIds);
-  const awayDeck = shuffle(awayDeckIds);
+  const hostDeck = shuffle(hostDeckIds, rng);
+  const awayDeck = shuffle(awayDeckIds, rng);
 
   const hostHand = hostDeck.slice(0, config.startingHandSize);
   const hostDeckRemaining = hostDeck.slice(config.startingHandSize);
@@ -203,7 +218,163 @@ export function legalMoves(state: GameState, seat: Seat): Command[] {
   moves.push({ type: "END_TURN" });
   moves.push({ type: "SURRENDER" });
 
-  // TODO: Add phase-specific moves (summon, set, activate, attack, etc.)
+  const isHost = seat === "host";
+  const hand = isHost ? state.hostHand : state.awayHand;
+  const board = isHost ? state.hostBoard : state.awayBoard;
+  const spellTrapZone = isHost ? state.hostSpellTrapZone : state.awaySpellTrapZone;
+  const opponentBoard = isHost ? state.awayBoard : state.hostBoard;
+  const normalSummonedThisTurn = isHost ? state.hostNormalSummonedThisTurn : state.awayNormalSummonedThisTurn;
+
+  // Main phase moves (main or main2)
+  if (state.currentPhase === "main" || state.currentPhase === "main2") {
+    // SUMMON and SET_MONSTER moves
+    if (!normalSummonedThisTurn && board.length < state.config.maxBoardSlots) {
+      for (const cardId of hand) {
+        const card = state.cardLookup[cardId];
+        if (!card || card.type !== "stereotype") continue;
+
+        const level = card.level ?? 0;
+
+        // Level 7+ requires 1 tribute
+        if (level >= 7) {
+          const faceUpMonsters = board.filter((c) => !c.faceDown);
+          for (const tributeMonster of faceUpMonsters) {
+            // SUMMON with tribute in attack position
+            moves.push({
+              type: "SUMMON",
+              cardId,
+              position: "attack",
+              tributeCardIds: [tributeMonster.cardId],
+            });
+            // SUMMON with tribute in defense position
+            moves.push({
+              type: "SUMMON",
+              cardId,
+              position: "defense",
+              tributeCardIds: [tributeMonster.cardId],
+            });
+          }
+        } else {
+          // Level 1-6: no tribute needed
+          // SUMMON in attack position
+          moves.push({
+            type: "SUMMON",
+            cardId,
+            position: "attack",
+          });
+          // SUMMON in defense position
+          moves.push({
+            type: "SUMMON",
+            cardId,
+            position: "defense",
+          });
+        }
+
+        // SET_MONSTER (face-down defense)
+        moves.push({
+          type: "SET_MONSTER",
+          cardId,
+        });
+      }
+    }
+
+    // FLIP_SUMMON moves
+    for (const boardCard of board) {
+      if (boardCard.faceDown && boardCard.turnSummoned < state.turnNumber) {
+        moves.push({
+          type: "FLIP_SUMMON",
+          cardId: boardCard.cardId,
+        });
+      }
+    }
+
+    // SET_SPELL_TRAP moves
+    if (spellTrapZone.length < state.config.maxSpellTrapSlots) {
+      for (const cardId of hand) {
+        const card = state.cardLookup[cardId];
+        if (!card || (card.type !== "spell" && card.type !== "trap")) continue;
+
+        moves.push({
+          type: "SET_SPELL_TRAP",
+          cardId,
+        });
+      }
+    }
+
+    // ACTIVATE_SPELL moves (from hand or face-down set spells)
+    for (const cardId of hand) {
+      const card = state.cardLookup[cardId];
+      if (!card || card.type !== "spell") continue;
+
+      // Check if we have room in spell/trap zone (unless it's a field spell)
+      if (card.spellType !== "field" && spellTrapZone.length >= state.config.maxSpellTrapSlots) {
+        continue;
+      }
+
+      moves.push({
+        type: "ACTIVATE_SPELL",
+        cardId,
+      });
+    }
+
+    // ACTIVATE_SPELL for face-down set spells
+    for (const setCard of spellTrapZone) {
+      if (!setCard.faceDown) continue;
+
+      const card = state.cardLookup[setCard.definitionId];
+      if (!card || card.type !== "spell") continue;
+
+      moves.push({
+        type: "ACTIVATE_SPELL",
+        cardId: setCard.cardId,
+      });
+    }
+
+    // ACTIVATE_TRAP moves (face-down set traps only)
+    for (const setCard of spellTrapZone) {
+      if (!setCard.faceDown) continue;
+
+      const card = state.cardLookup[setCard.definitionId];
+      if (!card || card.type !== "trap") continue;
+
+      moves.push({
+        type: "ACTIVATE_TRAP",
+        cardId: setCard.cardId,
+      });
+    }
+  }
+
+  // Combat phase moves
+  if (state.currentPhase === "combat") {
+    // DECLARE_ATTACK moves
+    if (state.turnNumber > 1) {
+      const faceUpOpponentMonsters = opponentBoard.filter((c) => !c.faceDown);
+
+      for (const boardCard of board) {
+        // Must be face-up, can attack, and hasn't attacked this turn
+        if (boardCard.faceDown || !boardCard.canAttack || boardCard.hasAttackedThisTurn) {
+          continue;
+        }
+
+        // Can attack each opponent monster
+        for (const opponentMonster of opponentBoard) {
+          moves.push({
+            type: "DECLARE_ATTACK",
+            attackerId: boardCard.cardId,
+            targetId: opponentMonster.cardId,
+          });
+        }
+
+        // Can direct attack if opponent has no face-up monsters
+        if (faceUpOpponentMonsters.length === 0) {
+          moves.push({
+            type: "DECLARE_ATTACK",
+            attackerId: boardCard.cardId,
+          });
+        }
+      }
+    }
+  }
 
   return moves;
 }
@@ -374,6 +545,72 @@ export function evolve(state: GameState, events: EngineEvent[]): GameState {
         newState.gameOver = true;
         newState.winner = winner;
         newState.winReason = "deck_out";
+        break;
+      }
+
+      case "MODIFIER_APPLIED": {
+        const { cardId, field, amount } = event;
+        for (const boardKey of ["hostBoard", "awayBoard"] as const) {
+          const idx = newState[boardKey].findIndex((c) => c.cardId === cardId);
+          if (idx > -1) {
+            newState[boardKey] = [...newState[boardKey]];
+            const card = { ...newState[boardKey][idx] };
+            card.temporaryBoosts = { ...card.temporaryBoosts };
+            card.temporaryBoosts[field] += amount;
+            newState[boardKey][idx] = card;
+            break;
+          }
+        }
+        break;
+      }
+
+      case "CARD_BANISHED": {
+        const { cardId } = event;
+        for (const [boardKey, banishedKey] of [["hostBoard", "hostBanished"], ["awayBoard", "awayBanished"]] as const) {
+          const idx = (newState as any)[boardKey].findIndex((c: any) => c.cardId === cardId);
+          if (idx > -1) {
+            (newState as any)[boardKey] = [...(newState as any)[boardKey]];
+            (newState as any)[boardKey].splice(idx, 1);
+            (newState as any)[banishedKey] = [...(newState as any)[banishedKey], cardId];
+            break;
+          }
+        }
+        break;
+      }
+
+      case "CARD_RETURNED_TO_HAND": {
+        const { cardId } = event;
+        for (const [boardKey, handKey] of [["hostBoard", "hostHand"], ["awayBoard", "awayHand"]] as const) {
+          const idx = (newState as any)[boardKey].findIndex((c: any) => c.cardId === cardId);
+          if (idx > -1) {
+            (newState as any)[boardKey] = [...(newState as any)[boardKey]];
+            (newState as any)[boardKey].splice(idx, 1);
+            (newState as any)[handKey] = [...(newState as any)[handKey], cardId];
+            break;
+          }
+        }
+        break;
+      }
+
+      case "SPECIAL_SUMMONED": {
+        const { seat, cardId, position } = event;
+        const isHost = seat === "host";
+        const board = isHost ? [...newState.hostBoard] : [...newState.awayBoard];
+        const gyKey = isHost ? "hostGraveyard" : "awayGraveyard";
+        const gy = [...(newState as any)[gyKey]];
+        const gyIdx = gy.indexOf(cardId);
+        if (gyIdx > -1) gy.splice(gyIdx, 1);
+        (newState as any)[gyKey] = gy;
+
+        const newCard: BoardCard = {
+          cardId, definitionId: cardId, position, faceDown: false,
+          canAttack: false, hasAttackedThisTurn: false, changedPositionThisTurn: false,
+          viceCounters: 0, temporaryBoosts: { attack: 0, defense: 0 }, equippedCards: [],
+          turnSummoned: newState.turnNumber,
+        };
+        board.push(newCard);
+        if (isHost) newState.hostBoard = board;
+        else newState.awayBoard = board;
         break;
       }
 
