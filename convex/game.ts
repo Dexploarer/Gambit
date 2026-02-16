@@ -23,30 +23,35 @@ const normalizeDeckId = (deckId: string | undefined): string | null => {
   return trimmed;
 };
 
-async function resolveActiveDeckForStory(ctx: any, user: { _id: string; activeDeckId?: string }) {
-  const requestedDeckId = normalizeDeckId(user.activeDeckId);
-
+async function resolveActiveDeckIdForUser(
+  ctx: any,
+  user: { _id: string; activeDeckId?: string },
+) {
   const activeDecks = await cards.decks.getUserDecks(ctx, user._id);
-  if (!activeDecks || activeDecks.length === 0) {
-    throw new Error("No active deck set");
-  }
-
+  const requestedDeckId = normalizeDeckId(user.activeDeckId);
   const preferredDeck =
-    requestedDeckId
+    requestedDeckId && activeDecks
       ? activeDecks.find((deck: { deckId: string }) => deck.deckId === requestedDeckId)
       : null;
 
-  const deckId = preferredDeck?.deckId ?? activeDecks[0]?.deckId;
-  if (typeof deckId !== "string" || !deckId) {
-    throw new Error("No valid active deck found.");
+  const fallbackDeckId = (preferredDeck || activeDecks?.[0])?.deckId;
+  if (!fallbackDeckId) return null;
+
+  if (user.activeDeckId !== fallbackDeckId) {
+    await ctx.db.patch(user._id, { activeDeckId: fallbackDeckId });
   }
+  return fallbackDeckId;
+}
+
+async function resolveActiveDeckForStory(ctx: any, user: { _id: string; activeDeckId?: string }) {
+  const deckId = await resolveActiveDeckIdForUser(ctx, user);
+  if (!deckId) {
+    throw new Error("No active deck set");
+  }
+
   const deckData = await cards.decks.getDeckWithCards(ctx, deckId);
   if (!deckData) {
     throw new Error("Deck not found");
-  }
-
-  if (deckId !== user.activeDeckId) {
-    await ctx.db.patch(user._id, { activeDeckId: deckId });
   }
 
   return { deckId, deckData };
@@ -95,7 +100,15 @@ export const createDeck = mutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    return cards.decks.createDeck(ctx, user._id, args.name);
+    const activeDeckId = await resolveActiveDeckIdForUser(ctx, user);
+    if (!activeDeckId) {
+      throw new Error("Select a starter deck before creating a custom deck.");
+    }
+
+    const deckId = await cards.decks.createDeck(ctx, user._id, args.name);
+    await cards.decks.setActiveDeck(ctx, user._id, deckId);
+    await ctx.db.patch(user._id, { activeDeckId: deckId });
+    return deckId;
   },
 });
 
@@ -134,7 +147,29 @@ export const selectStarterDeck = mutation({
     // Check if user already picked a starter deck
     const existingDecks = await cards.decks.getUserDecks(ctx, user._id);
     if (existingDecks && existingDecks.length > 0) {
-      throw new Error("You already have a deck. Starter selection is one-time.");
+      const requestedArchetype = args.deckCode.replace("_starter", "");
+      const existingDeck =
+        existingDecks.find((deck: any) => deck.name === args.deckCode) ??
+        existingDecks.find((deck: any) => {
+          const archetype = deck.deckArchetype;
+          return (
+            typeof archetype === "string" &&
+            archetype.toLowerCase() === requestedArchetype.toLowerCase()
+          );
+        }) ??
+        existingDecks[0];
+
+      if (existingDeck?.deckId) {
+        await cards.decks.setActiveDeck(ctx, user._id, existingDeck.deckId);
+        if (user.activeDeckId !== existingDeck.deckId) {
+          await ctx.db.patch(user._id, { activeDeckId: existingDeck.deckId });
+        }
+
+        return {
+          deckId: existingDeck.deckId,
+          cardCount: existingDeck.cardCount ?? 0,
+        };
+      }
     }
 
     // Look up the recipe
@@ -429,6 +464,14 @@ function pickAICommand(
   cardLookup: Record<string, any>
 ): Command {
   const phase = view.currentPhase;
+  const hand = Array.isArray(view?.hand) ? view.hand : [];
+  const board = Array.isArray(view?.board) ? view.board : [];
+  const opponentBoard = Array.isArray(view?.opponentBoard)
+    ? view.opponentBoard
+    : [];
+  const spellTrapZone = Array.isArray(view?.spellTrapZone)
+    ? view.spellTrapZone
+    : [];
 
   // Draw/Standby/Breakdown/End phases → ADVANCE_PHASE
   if (
@@ -443,7 +486,7 @@ function pickAICommand(
   // Main phase (main/main2)
   if (phase === "main" || phase === "main2") {
     // 1. Try to summon strongest monster from hand
-    const monstersInHand = view.hand
+    const monstersInHand = hand
       .map((id: string) => ({ id, def: cardLookup[id] }))
       .filter((c: any) => c.def?.cardType === "stereotype");
 
@@ -457,7 +500,7 @@ function pickAICommand(
       const level = strongest.def?.level ?? 0;
 
       // Level < 7: no tribute needed
-      if (level < 7 && view.board.length < 5) {
+      if (level < 7 && board.length < 5) {
         return {
           type: "SUMMON",
           cardId: strongest.id,
@@ -466,8 +509,8 @@ function pickAICommand(
       }
 
       // Level 7+: tribute weakest face-up monster if available
-      if (level >= 7 && view.board.length > 0) {
-        const faceUpMonsters = view.board.filter((c: any) => !c.faceDown);
+      if (level >= 7 && board.length > 0) {
+        const faceUpMonsters = board.filter((c: any) => !c.faceDown);
         if (faceUpMonsters.length > 0) {
           // Find weakest (by attack)
           const weakest = faceUpMonsters.reduce((min: any, card: any) => {
@@ -490,14 +533,25 @@ function pickAICommand(
       }
     }
 
-    // 2. Set spells/traps if backrow has space
-    const spellsTrapsInHand = view.hand
+    // 2. Activate spell cards from hand if any
+    const spellsInHand = hand
+      .map((id: string) => ({ id, def: cardLookup[id] }))
+      .filter((c: any) => c.def?.cardType === "spell");
+    if (spellsInHand.length > 0) {
+      return {
+        type: "ACTIVATE_SPELL",
+        cardId: spellsInHand[0].id,
+      };
+    }
+
+    // 3. Set spells/traps if backrow has space
+    const spellsTrapsInHand = hand
       .map((id: string) => ({ id, def: cardLookup[id] }))
       .filter(
         (c: any) => c.def?.cardType === "spell" || c.def?.cardType === "trap"
       );
 
-    if (spellsTrapsInHand.length > 0 && view.spellTrapZone.length < 5) {
+    if (spellsTrapsInHand.length > 0 && spellTrapZone.length < 5) {
       return {
         type: "SET_SPELL_TRAP",
         cardId: spellsTrapsInHand[0].id,
@@ -506,7 +560,7 @@ function pickAICommand(
 
     // 3. If main phase 1 with monsters on board: advance to combat
     if (phase === "main") {
-      const attackableMonsters = view.board.filter(
+      const attackableMonsters = board.filter(
         (c: any) => !c.faceDown && c.canAttack && !c.hasAttackedThisTurn
       );
       if (attackableMonsters.length > 0) {
@@ -520,62 +574,58 @@ function pickAICommand(
     }
 
     // Default for main phase: end turn
-    return { type: "END_TURN" };
-  }
+      return { type: "END_TURN" };
+    }
 
-  // Combat phase
-  if (phase === "combat") {
-    // Find all monsters that can attack
-    const attackableMonsters = view.board.filter(
-      (c: any) => !c.faceDown && c.canAttack && !c.hasAttackedThisTurn
-    );
-
-    if (attackableMonsters.length > 0) {
-      const attacker = attackableMonsters[0];
-      const attackerAtk =
-        (cardLookup[attacker.definitionId]?.attack ?? 0) +
-        (attacker.temporaryBoosts?.attack ?? 0);
-
-      // Check opponent's face-up monsters
-      const opponentFaceUpMonsters = view.opponentBoard.filter(
-        (c: any) => !c.faceDown
+    // Combat phase
+    if (phase === "combat") {
+      // Find all monsters that can attack
+      const attackableMonsters = board.filter(
+        (c: any) => !c.faceDown && c.canAttack && !c.hasAttackedThisTurn
       );
 
-      if (opponentFaceUpMonsters.length === 0) {
-        // Direct attack
-        return {
-          type: "DECLARE_ATTACK",
-          attackerId: attacker.cardId,
-        };
-      }
+      if (attackableMonsters.length > 0) {
+        const attacker = attackableMonsters[0];
+        const attackerId = attacker?.cardId ?? attacker?.instanceId;
+        if (!attackerId) return { type: "ADVANCE_PHASE" };
 
-      // Find weakest opponent monster
-      let weakestOpponent = opponentFaceUpMonsters[0];
-      let weakestAtk =
-        (cardLookup[weakestOpponent.definitionId]?.attack ?? 0) +
-        (weakestOpponent.temporaryBoosts?.attack ?? 0);
+        // Check opponent monsters (including face-down)
+        const opponentMonsters = opponentBoard;
 
-      for (const opp of opponentFaceUpMonsters) {
-        const oppAtk =
-          (cardLookup[opp.definitionId]?.attack ?? 0) +
-          (opp.temporaryBoosts?.attack ?? 0);
-        if (oppAtk < weakestAtk) {
-          weakestOpponent = opp;
-          weakestAtk = oppAtk;
+        if (opponentMonsters.length === 0) {
+          // Direct attack
+          return {
+            type: "DECLARE_ATTACK",
+            attackerId,
+          };
         }
-      }
 
-      // Attack if we're stronger
-      if (attackerAtk > weakestAtk) {
+        // Find weakest opponent monster
+        let weakestOpponent = opponentMonsters[0];
+        let weakestAtk =
+          (cardLookup[weakestOpponent.definitionId]?.attack ?? 0) +
+          (weakestOpponent.temporaryBoosts?.attack ?? 0);
+
+        for (const opp of opponentMonsters) {
+          const oppAtk =
+            (cardLookup[opp.definitionId]?.attack ?? 0) +
+            (opp.temporaryBoosts?.attack ?? 0);
+          if (oppAtk < weakestAtk) {
+            weakestOpponent = opp;
+            weakestAtk = oppAtk;
+          }
+        }
+
+        const targetId = weakestOpponent.cardId ?? weakestOpponent.instanceId;
         return {
           type: "DECLARE_ATTACK",
-          attackerId: attacker.cardId,
-          targetId: weakestOpponent.cardId,
+          attackerId,
+          targetId,
         };
       }
     }
 
-    // No attacks possible or safe, advance phase
+    // No attacks possible, advance phase
     return { type: "ADVANCE_PHASE" };
   }
 
@@ -602,8 +652,8 @@ export const executeAITurn = internalMutation({
       cardLookup[card._id] = card;
     }
 
-    // Loop up to 20 actions
-    for (let i = 0; i < 20; i++) {
+  // Loop up to 20 actions
+  for (let i = 0; i < 20; i++) {
       const viewJson = await match.getPlayerView(ctx, {
         matchId: args.matchId,
         seat: aiSeat,
@@ -614,6 +664,19 @@ export const executeAITurn = internalMutation({
 
       // Stop if game is over or no longer AI's turn
       if (view.gameOver || view.currentTurnPlayer !== aiSeat) return;
+
+      if (Array.isArray(view.currentChain) && view.currentChain.length > 0) {
+        try {
+          await match.submitAction(ctx, {
+            matchId: args.matchId,
+            command: JSON.stringify({ type: "CHAIN_RESPONSE", pass: true }),
+            seat: aiSeat,
+          });
+        } catch {
+          return;
+        }
+        continue;
+      }
 
       // Pick AI command
       const command = pickAICommand(view, cardLookup);
