@@ -7,6 +7,16 @@ import path from "path";
 export default defineConfig({
   build: {
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router'],
+          'vendor-sentry': ['@sentry/react'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-privy': ['@privy-io/react-auth'],
+        },
+      },
+    },
   },
   plugins: [
     react(),
