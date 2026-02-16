@@ -25,6 +25,33 @@ interface CachedManifestEntry {
 const COMMENT_PREFIXES = ["#", ";", "//"];
 const SOUNDTRACK_CACHE_KEY = "ltcg.soundtrack.manifest.cache.v2";
 const SOUNDTRACK_CACHE_TTL_MS = 30 * 60 * 1000;
+const FALLBACK_PLAYLISTS: Record<string, string[]> = {
+  landing: [
+    "/lunchtable/soundtrack/THEME.mp3",
+    "/lunchtable/soundtrack/THEMEREMIX.mp3",
+    "/lunchtable/soundtrack/MISC.mp3",
+  ],
+  play: [
+    "/lunchtable/soundtrack/FREAK.mp3",
+    "/lunchtable/soundtrack/GEEK.mp3",
+    "/lunchtable/soundtrack/GOODIE.mp3",
+    "/lunchtable/soundtrack/NERDS.mp3",
+    "/lunchtable/soundtrack/PREP.mp3",
+  ],
+  story: [
+    "/lunchtable/soundtrack/THEME2.mp3",
+    "/lunchtable/soundtrack/MISC3.mp3",
+  ],
+  watch: [
+    "/lunchtable/soundtrack/THEME.mp3",
+    "/lunchtable/soundtrack/THEMEREMIX.mp3",
+  ],
+  default: [
+    "/lunchtable/soundtrack/THEME.mp3",
+    "/lunchtable/soundtrack/FREAK.mp3",
+    "/lunchtable/soundtrack/GEEK.mp3",
+  ],
+};
 const FALLBACK_SFX_KEYS: Record<string, string> = {
   summon: "summon",
   spell: "spell",
@@ -110,13 +137,12 @@ function buildFallbackSoundtrackManifest(source: string): SoundtrackManifest {
   );
 
   return {
-    playlists: {
-      default: [],
-      landing: [],
-      play: [],
-      story: [],
-      watch: [],
-    },
+    playlists: Object.fromEntries(
+      Object.entries(FALLBACK_PLAYLISTS).map(([section, tracks]) => [
+        section,
+        tracks.map((track) => normalizeTrackPath(track)),
+      ]),
+    ),
     sfx: fallbackSfx,
     source,
     loadedAt: Date.now(),
@@ -188,6 +214,35 @@ function normalizeTrackList(values: unknown): string[] {
   return tracks;
 }
 
+function normalizePlaylists(value: unknown): Record<string, string[]> {
+  if (!isObject(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).map(([section, tracks]) => [
+      normalizeSectionName(section),
+      normalizeTrackList(tracks),
+    ]),
+  );
+}
+
+function mergePlaylistMap(
+  base: Record<string, string[]>,
+  extra: Record<string, string[]>,
+): Record<string, string[]> {
+  const merged = Object.fromEntries(
+    Object.entries(base).map(([section, tracks]) => [section, [...tracks]]),
+  );
+
+  for (const [section, tracks] of Object.entries(extra)) {
+    if (!merged[section]) merged[section] = [];
+    for (const track of tracks) {
+      pushUnique(merged[section]!, track);
+    }
+  }
+
+  return merged;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
@@ -202,6 +257,10 @@ function isSoundtrackManifest(value: unknown): value is SoundtrackManifest {
   }
 
   return true;
+}
+
+function manifestHasTracks(manifest: SoundtrackManifest): boolean {
+  return Object.values(manifest.playlists).some((tracks) => tracks.length > 0);
 }
 
 function normalizeSfxMap(value: unknown): Record<string, string> {
@@ -235,19 +294,43 @@ function parseTrackPayload(raw: string): SoundtrackManifest {
 
   try {
     const json = JSON.parse(trimmed) as {
-      playlists?: Record<string, unknown>;
-      sfx?: Record<string, unknown>;
+      playlists?: unknown;
+      tracksByCategory?: unknown;
+      tracks?: unknown;
+      resolved?: unknown;
+      sfx?: unknown;
       source?: string;
     };
 
     if (json && typeof json === "object") {
+      let playlists = normalizePlaylists(json.playlists);
+      playlists = mergePlaylistMap(playlists, normalizePlaylists(json.tracksByCategory));
+
+      const legacyTracks = normalizeTrackList(json.tracks);
+      if (legacyTracks.length > 0) {
+        if (!playlists.default) playlists.default = [];
+        for (const track of legacyTracks) {
+          pushUnique(playlists.default, track);
+        }
+      }
+
+      if (isObject(json.resolved)) {
+        const resolvedKey =
+          typeof json.resolved.key === "string"
+            ? normalizeSectionName(json.resolved.key)
+            : null;
+        const resolvedTracks = normalizeTrackList(json.resolved.tracks);
+        if (resolvedTracks.length > 0) {
+          const key = resolvedKey || "default";
+          if (!playlists[key]) playlists[key] = [];
+          for (const track of resolvedTracks) {
+            pushUnique(playlists[key]!, track);
+          }
+        }
+      }
+
       return {
-        playlists: Object.fromEntries(
-          Object.entries(json.playlists ?? {}).map(([section, tracks]) => [
-            normalizeSectionName(section),
-            normalizeTrackList(tracks),
-          ]),
-        ),
+        playlists,
         sfx: normalizeSfxMap(json.sfx ?? {}),
         source: json.source ?? "/api/soundtrack",
         loadedAt: Date.now(),
@@ -415,7 +498,8 @@ export async function loadSoundtrackManifest(
       ? cached.manifest
       : normalizeManifestForPlayback(cached.manifest)
     : null;
-  if (cachedManifest && isManifestCacheFresh(cached)) {
+  const cachedManifestHasTracks = cachedManifest ? manifestHasTracks(cachedManifest) : false;
+  if (cachedManifest && cachedManifestHasTracks && isManifestCacheFresh(cached)) {
     return cachedManifest;
   }
 
@@ -423,7 +507,9 @@ export async function loadSoundtrackManifest(
     try {
       return await loadFromUrl(source, "no-store");
     } catch {
-      return cachedManifest;
+      if (cachedManifestHasTracks) {
+        return cachedManifest;
+      }
     }
   }
 
@@ -431,7 +517,7 @@ export async function loadSoundtrackManifest(
     return await loadFromUrl(source);
   } catch (error) {
     console.error("Failed to load soundtrack manifest", { source, error });
-    if (cached) return normalizeManifestForPlayback(cached.manifest);
+    if (cachedManifest && cachedManifestHasTracks) return cachedManifest;
 
     if (source !== "/soundtrack.in") {
       try {
