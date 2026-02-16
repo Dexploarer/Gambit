@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useRef, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router";
 import { usePrivy } from "@privy-io/react-auth";
 
 const REDIRECT_KEY = "ltcg_redirect";
@@ -15,17 +15,27 @@ const REDIRECT_KEY = "ltcg_redirect";
 export function usePostLoginRedirect() {
   const { authenticated } = usePrivy();
   const navigate = useNavigate();
+  const location = useLocation();
   const fired = useRef(false);
 
-  useEffect(() => {
-    if (!authenticated || fired.current) return;
-
+  const consumeAndRedirect = useCallback(() => {
+    if (fired.current) return;
+    
     const path = sessionStorage.getItem(REDIRECT_KEY);
-    if (path) {
+    if (path && path !== location.pathname) {
       fired.current = true;
+      sessionStorage.removeItem(REDIRECT_KEY);
       navigate(path);
+    } else if (path === location.pathname) {
+      // Already on the target path, clear the redirect
+      sessionStorage.removeItem(REDIRECT_KEY);
     }
-  }, [authenticated, navigate]);
+  }, [navigate, location.pathname]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    consumeAndRedirect();
+  }, [authenticated, consumeAndRedirect]);
 }
 
 /** Store a redirect path before triggering login. */
