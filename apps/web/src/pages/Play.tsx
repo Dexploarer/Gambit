@@ -68,7 +68,7 @@ export function Play() {
   const [completion, setCompletion] = useState<StoryCompletion | null>(null);
   const completingRef = useRef(false);
 
-  const playerSeat = resolvePlayerSeat(currentUser, meta, isStory);
+  const playerSeat = resolvePlayerSeat(currentUser ?? null, meta, isStory);
 
   const storyWon = resolveStoryWon(meta?.winner, playerSeat);
 
