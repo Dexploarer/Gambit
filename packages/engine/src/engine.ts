@@ -11,6 +11,7 @@ import { decideDeclareAttack, evolveCombat } from "./rules/combat.js";
 import { evolveVice } from "./rules/vice.js";
 import { drawCard } from "./rules/stateBasedActions.js";
 import { decideChainResponse } from "./rules/chain.js";
+import { resolveEffectActions, canActivateEffect, detectTriggerEffects } from "./rules/effects.js";
 
 export interface EngineOptions {
   config?: Partial<EngineConfig>;
@@ -452,6 +453,41 @@ export function decide(state: GameState, command: Command, seat: Seat): EngineEv
       break;
     }
 
+    case "ACTIVATE_EFFECT": {
+      const { cardId, effectIndex, targets = [] } = command;
+      // Must be main phase for ignition effects
+      if (state.currentPhase !== "main" && state.currentPhase !== "main2") break;
+
+      // Find the card on the player's board
+      const playerBoard = seat === "host" ? state.hostBoard : state.awayBoard;
+      const boardCard = playerBoard.find((c) => c.cardId === cardId);
+      if (!boardCard) break;
+      if (boardCard.faceDown) break;
+
+      // Get card definition
+      const cardDef = state.cardLookup[cardId];
+      if (!cardDef?.effects || effectIndex < 0 || effectIndex >= cardDef.effects.length) break;
+
+      const effectDef = cardDef.effects[effectIndex];
+      if (effectDef.type !== "ignition") break;
+
+      // Check OPT/HOPT
+      if (!canActivateEffect(state, effectDef)) break;
+
+      // Emit EFFECT_ACTIVATED
+      events.push({
+        type: "EFFECT_ACTIVATED",
+        seat,
+        cardId,
+        effectIndex,
+        targets,
+      });
+
+      // Resolve the effect's actions
+      events.push(...resolveEffectActions(state, seat, effectDef.actions, cardId, targets));
+      break;
+    }
+
     case "CHANGE_POSITION": {
       const { cardId } = command;
       // Must be main phase
@@ -668,6 +704,21 @@ export function evolve(state: GameState, events: EngineEvent[]): GameState {
         break;
       }
 
+      case "EFFECT_ACTIVATED": {
+        const { effectIndex, cardId } = event;
+        const cardDef = newState.cardLookup[cardId];
+        if (cardDef?.effects?.[effectIndex]) {
+          const eff = cardDef.effects[effectIndex];
+          if (eff.oncePerTurn) {
+            newState.optUsedThisTurn = [...newState.optUsedThisTurn, eff.id];
+          }
+          if (eff.hardOncePerTurn) {
+            newState.hoptUsedEffects = [...newState.hoptUsedEffects, eff.id];
+          }
+        }
+        break;
+      }
+
       case "POSITION_CHANGED": {
         const { cardId, to } = event as any;
         for (const boardKey of ["hostBoard", "awayBoard"] as const) {
@@ -690,6 +741,12 @@ export function evolve(state: GameState, events: EngineEvent[]): GameState {
       default:
         break;
     }
+  }
+
+  // Process trigger effects (on_summon, etc.)
+  const triggerEvents = detectTriggerEffects(newState, events);
+  if (triggerEvents.length > 0) {
+    newState = evolve(newState, triggerEvents);
   }
 
   // State-based check: LP reaching 0 ends the game
