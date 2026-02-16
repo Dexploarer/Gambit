@@ -452,6 +452,26 @@ export function decide(state: GameState, command: Command, seat: Seat): EngineEv
       break;
     }
 
+    case "CHANGE_POSITION": {
+      const { cardId } = command;
+      // Must be main phase
+      if (state.currentPhase !== "main" && state.currentPhase !== "main2") break;
+      // Find card on player's board
+      const board = seat === "host" ? state.hostBoard : state.awayBoard;
+      const card = board.find((c) => c.cardId === cardId);
+      if (!card) break;
+      // Must be face-up
+      if (card.faceDown) break;
+      // Can't change position twice in one turn
+      if (card.changedPositionThisTurn) break;
+      // Can't change position the turn it was summoned
+      if (card.turnSummoned >= state.turnNumber) break;
+      const from = card.position;
+      const to = from === "attack" ? "defense" : "attack";
+      events.push({ type: "POSITION_CHANGED", cardId, from, to });
+      break;
+    }
+
     // TODO: Handle other commands
     default:
       break;
@@ -483,12 +503,14 @@ export function evolve(state: GameState, events: EngineEvent[]): GameState {
             ...c,
             canAttack: true,
             hasAttackedThisTurn: false,
+            changedPositionThisTurn: false,
           }));
         } else {
           newState.awayBoard = newState.awayBoard.map((c) => ({
             ...c,
             canAttack: true,
             hasAttackedThisTurn: false,
+            changedPositionThisTurn: false,
           }));
         }
         break;
@@ -643,6 +665,20 @@ export function evolve(state: GameState, events: EngineEvent[]): GameState {
 
       case "CHAIN_PASSED": {
         // Handled by chain resolution logic in decideChainResponse
+        break;
+      }
+
+      case "POSITION_CHANGED": {
+        const { cardId, to } = event as any;
+        for (const boardKey of ["hostBoard", "awayBoard"] as const) {
+          const board = [...newState[boardKey]];
+          const idx = board.findIndex((c) => c.cardId === cardId);
+          if (idx > -1) {
+            board[idx] = { ...board[idx], position: to, changedPositionThisTurn: true };
+            newState[boardKey] = board;
+            break;
+          }
+        }
         break;
       }
 
