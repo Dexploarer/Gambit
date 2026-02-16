@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
-import { useGameState } from "./hooks/useGameState";
+import { useGameState, type Seat } from "./hooks/useGameState";
 import { useGameActions } from "./hooks/useGameActions";
 import { useAudio } from "@/components/audio/AudioProvider";
 import { LPBar } from "./LPBar";
 import { PhaseBar } from "./PhaseBar";
 import { FieldRow } from "./FieldRow";
 import { PlayerHand } from "./PlayerHand";
+import { ChainPrompt } from "./ChainPrompt";
 import { ActionSheet } from "./ActionSheet";
 import { TributeSelector } from "./TributeSelector";
 import { AttackTargetSelector } from "./AttackTargetSelector";
@@ -17,15 +18,104 @@ import type { Phase } from "@lunchtable-tcg/engine";
 
 interface GameBoardProps {
   matchId: string;
+  seat: Seat;
 }
 
-export function GameBoard({ matchId }: GameBoardProps) {
+export function GameBoard({ matchId, seat }: GameBoardProps) {
   const navigate = useNavigate();
   const { playSfx } = useAudio();
-  const { meta, view, cardLookup, isMyTurn, phase, gameOver, validActions, isLoading, notFound } =
-    useGameState(matchId);
-  const actions = useGameActions(matchId);
+  const {
+    meta,
+    view,
+    cardLookup,
+    isMyTurn,
+    phase,
+    gameOver,
+    validActions,
+    isLoading,
+    notFound,
+    openPrompt,
+  } = useGameState(matchId, seat);
+  const actions = useGameActions(matchId, seat);
   const endSfxPlayedRef = useRef(false);
+
+  const isChainPromptOpen = Boolean(openPrompt);
+  const chainData = (openPrompt?.data ?? {}) as Record<string, unknown>;
+  const playerSeat = view?.mySeat;
+
+  const chainOpponentCardName = (() => {
+    const directName = chainData.opponentCardName;
+    if (typeof directName === "string" && directName.trim()) return directName;
+
+    const directDefId =
+      typeof chainData.opponentCardDefinitionId === "string"
+        ? chainData.opponentCardDefinitionId
+        : typeof chainData.opponentDefinitionId === "string"
+          ? chainData.opponentDefinitionId
+          : undefined;
+    if (directDefId && cardLookup[directDefId]) {
+      return cardLookup[directDefId].name ?? "Opponent Card";
+    }
+
+    const directCardId =
+      typeof chainData.opponentCardId === "string"
+        ? chainData.opponentCardId
+        : typeof chainData.cardId === "string"
+          ? chainData.cardId
+          : undefined;
+    if (directCardId) {
+      const opponentCard =
+        view?.opponentBoard?.find((c: any) => c.cardId === directCardId) ??
+        view?.opponentSpellTrapZone?.find((c: any) => c.cardId === directCardId);
+      if (opponentCard?.definitionId && cardLookup[opponentCard.definitionId]) {
+        return cardLookup[opponentCard.definitionId].name ?? "Opponent Card";
+      }
+    }
+
+    return "Opponent Card";
+  })();
+
+  const chainActivatableTraps = (() => {
+    let rawTraps = chainData.activatableTraps;
+    if (!Array.isArray(rawTraps)) {
+      rawTraps = chainData.activatableTrapIds;
+    }
+    if (!Array.isArray(rawTraps)) return [];
+
+    return rawTraps
+      .map((entry: unknown) => {
+        if (typeof entry === "string") {
+          const stCard = view?.spellTrapZone?.find((st: any) => st.cardId === entry);
+          const definitionId = stCard?.definitionId ?? entry;
+          return {
+            cardId: entry,
+            name: stCard?.faceDown
+              ? "Set Trap"
+              : (cardLookup[definitionId]?.name ?? "Set Trap"),
+          };
+        }
+
+        if (!entry || typeof entry !== "object") return null;
+        const entryObj = entry as Record<string, unknown>;
+        const cardId = typeof entryObj.cardId === "string" ? entryObj.cardId : undefined;
+        const definitionId =
+          typeof entryObj.cardDefinitionId === "string"
+            ? entryObj.cardDefinitionId
+            : typeof entryObj.definitionId === "string"
+              ? entryObj.definitionId
+              : cardId;
+        if (!cardId) return null;
+
+        return {
+          cardId,
+          name:
+            (typeof entryObj.name === "string" && entryObj.name.trim()) ||
+            (definitionId ? cardLookup[definitionId]?.name : undefined) ||
+            "Set Trap",
+        };
+      })
+      .filter((entry): entry is { cardId: string; name: string } => Boolean(entry));
+  })();
 
   // Selection state
   const [selectedHandCard, setSelectedHandCard] = useState<string | null>(null);
@@ -58,15 +148,17 @@ export function GameBoard({ matchId }: GameBoardProps) {
   // Click handlers
   const handleHandCardClick = useCallback(
     (cardId: string) => {
+      if (isChainPromptOpen) return;
       if (!playableIds.has(cardId)) return;
       setSelectedHandCard(cardId);
       setShowActionSheet(true);
     },
-    [playableIds],
+    [isChainPromptOpen, playableIds],
   );
 
   const handleBoardCardClick = useCallback(
     (cardId: string) => {
+      if (isChainPromptOpen) return;
       // Combat phase: declare attack
       if (phase === "combat" && attackableIds.has(cardId)) {
         setSelectedBoardCard(cardId);
@@ -80,12 +172,13 @@ export function GameBoard({ matchId }: GameBoardProps) {
         return;
       }
     },
-    [phase, attackableIds, flipSummonIds, actions],
+    [isChainPromptOpen, phase, attackableIds, flipSummonIds, actions],
   );
 
   // ActionSheet callbacks (stubbed until ActionSheet exists)
   const handleActionSheetSummon = useCallback(
     (position: "attack" | "defense") => {
+      if (isChainPromptOpen) return;
       if (!selectedHandCard) return;
       const summonInfo = validActions.canSummon.get(selectedHandCard);
       if (!summonInfo) return;
@@ -100,29 +193,32 @@ export function GameBoard({ matchId }: GameBoardProps) {
         setShowActionSheet(false);
       }
     },
-    [selectedHandCard, validActions, actions],
+    [isChainPromptOpen, selectedHandCard, validActions, actions],
   );
 
   const handleActionSheetSetMonster = useCallback(() => {
+    if (isChainPromptOpen) return;
     if (!selectedHandCard) return;
     actions.setMonster(selectedHandCard);
     setSelectedHandCard(null);
     setShowActionSheet(false);
-  }, [selectedHandCard, actions]);
+  }, [isChainPromptOpen, selectedHandCard, actions]);
 
   const handleActionSheetSetSpellTrap = useCallback(() => {
+    if (isChainPromptOpen) return;
     if (!selectedHandCard) return;
     actions.setSpellTrap(selectedHandCard);
     setSelectedHandCard(null);
     setShowActionSheet(false);
-  }, [selectedHandCard, actions]);
+  }, [isChainPromptOpen, selectedHandCard, actions]);
 
   const handleActionSheetActivateSpell = useCallback(() => {
+    if (isChainPromptOpen) return;
     if (!selectedHandCard) return;
     actions.activateSpell(selectedHandCard);
     setSelectedHandCard(null);
     setShowActionSheet(false);
-  }, [selectedHandCard, actions]);
+  }, [isChainPromptOpen, selectedHandCard, actions]);
 
   const handleActionSheetClose = useCallback(() => {
     setSelectedHandCard(null);
@@ -132,34 +228,60 @@ export function GameBoard({ matchId }: GameBoardProps) {
   // TributeSelector callback (stubbed until TributeSelector exists)
   const handleTributeConfirm = useCallback(
     (tributeIds: string[]) => {
+      if (isChainPromptOpen) return;
       if (!selectedHandCard || !pendingSummonPosition) return;
       actions.summon(selectedHandCard, pendingSummonPosition, tributeIds);
       setSelectedHandCard(null);
       setPendingSummonPosition(null);
       setShowTributeSelector(false);
     },
-    [selectedHandCard, pendingSummonPosition, actions],
+    [isChainPromptOpen, selectedHandCard, pendingSummonPosition, actions],
   );
 
   // AttackTargetSelector callbacks (stubbed until AttackTargetSelector exists)
   const handleAttackTarget = useCallback(
     (targetId?: string) => {
+      if (isChainPromptOpen) return;
       if (!selectedBoardCard) return;
       actions.declareAttack(selectedBoardCard, targetId);
       setSelectedBoardCard(null);
       setShowAttackTargets(false);
     },
-    [selectedBoardCard, actions],
+    [isChainPromptOpen, selectedBoardCard, actions],
   );
 
   const handleSurrender = useCallback(() => {
+    if (isChainPromptOpen) return;
     if (!showSurrenderConfirm) {
       setShowSurrenderConfirm(true);
       return;
     }
     actions.surrender();
     setShowSurrenderConfirm(false);
-  }, [showSurrenderConfirm, actions]);
+  }, [isChainPromptOpen, showSurrenderConfirm, actions]);
+
+  const handleChainActivate = useCallback(
+    (cardId: string) => {
+      actions.chainResponse(cardId, false);
+    },
+    [actions],
+  );
+
+  const handleChainPass = useCallback(() => {
+    actions.chainResponse(undefined, true);
+  }, [actions]);
+
+  useEffect(() => {
+    if (!isChainPromptOpen) return;
+    setSelectedHandCard(null);
+    setSelectedBoardCard(null);
+    setShowActionSheet(false);
+    setShowTributeSelector(false);
+    setShowAttackTargets(false);
+    setShowSurrenderConfirm(false);
+    setPendingSummonPosition(null);
+    setShowGraveyard(null);
+  }, [isChainPromptOpen]);
 
   // Loading/error states
   if (isLoading) {
@@ -189,7 +311,7 @@ export function GameBoard({ matchId }: GameBoardProps) {
   // Game over overlay
   const playerLP = view.lifePoints ?? 0;
   const opponentLP = view.opponentLifePoints ?? 0;
-  const winner = meta?.winner;
+  const winner = view.winner ?? meta?.winner;
   const ended = gameOver || meta?.status === "ended";
 
   useEffect(() => {
@@ -199,15 +321,26 @@ export function GameBoard({ matchId }: GameBoardProps) {
     }
     if (endSfxPlayedRef.current) return;
 
-    if (winner === "host") playSfx("victory");
-    else if (winner === "away") playSfx("defeat");
-    else playSfx("draw");
+    if (winner && playerSeat) {
+      if (winner === playerSeat) playSfx("victory");
+      else playSfx("defeat");
+    } else {
+      playSfx("draw");
+    }
 
     endSfxPlayedRef.current = true;
-  }, [ended, winner, playSfx]);
+  }, [ended, winner, playerSeat, playSfx]);
 
   if (ended) {
-    const result = winner === "host" ? "win" : winner === "away" ? "loss" : "draw";
+    const result = winner && playerSeat
+      ? winner === playerSeat
+        ? "win"
+        : "loss"
+      : playerLP > opponentLP
+        ? "win"
+        : playerLP < opponentLP
+          ? "loss"
+          : "draw";
     return (
       <AnimatePresence>
         <GameOverOverlay
@@ -272,7 +405,7 @@ export function GameBoard({ matchId }: GameBoardProps) {
         <PhaseBar
           currentPhase={phase as Phase}
           isMyTurn={isMyTurn}
-          onAdvance={actions.advancePhase}
+          onAdvance={isChainPromptOpen ? () => {} : actions.advancePhase}
         />
       </div>
 
@@ -368,7 +501,7 @@ export function GameBoard({ matchId }: GameBoardProps) {
           className={`text-xs text-[#666] hover:text-[#121212] underline ${
             showSurrenderConfirm ? "hidden" : ""
           }`}
-          disabled={actions.submitting}
+          disabled={actions.submitting || isChainPromptOpen}
         >
           Surrender
         </button>
@@ -378,6 +511,7 @@ export function GameBoard({ matchId }: GameBoardProps) {
             <button
               type="button"
               onClick={handleSurrender}
+              disabled={isChainPromptOpen}
               className="tcg-button-primary px-3 py-1 text-xs"
             >
               Yes
@@ -385,6 +519,7 @@ export function GameBoard({ matchId }: GameBoardProps) {
             <button
               type="button"
               onClick={() => setShowSurrenderConfirm(false)}
+              disabled={isChainPromptOpen}
               className="tcg-button px-3 py-1 text-xs"
             >
               No
@@ -394,12 +529,21 @@ export function GameBoard({ matchId }: GameBoardProps) {
         <button
           type="button"
           onClick={actions.endTurn}
-          disabled={!isMyTurn || actions.submitting}
+          disabled={!isMyTurn || actions.submitting || isChainPromptOpen}
           className="tcg-button-primary px-6 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
         >
           End Turn
         </button>
       </div>
+
+      {isChainPromptOpen && (
+        <ChainPrompt
+          opponentCardName={chainOpponentCardName}
+          activatableTraps={chainActivatableTraps}
+          onActivate={handleChainActivate}
+          onPass={handleChainPass}
+        />
+      )}
 
       {/* Error Display */}
       {actions.error && (

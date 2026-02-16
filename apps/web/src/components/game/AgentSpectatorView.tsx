@@ -64,7 +64,9 @@ function MatchBoard({
   agentName: string;
 }) {
   if (state.gameOver) {
-    const won = state.winner === "host" || state.myLP > state.oppLP;
+    const won = state.winner ? state.winner === state.seat : state.myLP > state.oppLP;
+    const draw = state.winner == null && state.myLP === state.oppLP;
+
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="paper-panel p-12 text-center max-w-md">
@@ -72,13 +74,13 @@ function MatchBoard({
             className="text-5xl mb-4"
             style={{ fontFamily: "Outfit, sans-serif", fontWeight: 900 }}
           >
-            {won ? "VICTORY" : "DEFEAT"}
+            {draw ? "DRAW" : won ? "VICTORY" : "DEFEAT"}
           </h1>
           <p
             className="text-sm text-[#666] mb-4"
             style={{ fontFamily: "Special Elite, cursive" }}
           >
-            {agentName} {won ? "won" : "lost"} — LP: {state.myLP} vs{" "}
+            {agentName} {draw ? "drew" : won ? "won" : "lost"} — LP: {state.myLP} vs{" "}
             {state.oppLP}
           </p>
           {state.chapterId && (

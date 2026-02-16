@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { apiAny, useConvexQuery } from "@/lib/convexHelpers";
 
+export type Seat = "host" | "away";
+
 export type ValidActions = {
   canSummon: Map<string, { positions: ("attack" | "defense")[]; needsTribute: boolean }>;
   canSetMonster: Set<string>;
@@ -11,15 +13,20 @@ export type ValidActions = {
   canFlipSummon: Set<string>;
 };
 
-export function useGameState(matchId: string | undefined) {
+export function useGameState(matchId: string | undefined, seat: Seat) {
   // Query match metadata
   const meta = useConvexQuery(apiAny.game.getMatchMeta, matchId ? { matchId } : "skip") as any;
 
   // Query player view (returned as JSON string from Convex)
   const viewJson = useConvexQuery(
     apiAny.game.getPlayerView,
-    matchId ? { matchId, seat: "host" } : "skip",
+    matchId && seat ? { matchId, seat } : "skip",
   ) as string | null | undefined;
+
+  const openPromptJson = useConvexQuery(
+    apiAny.game.getOpenPrompt,
+    matchId && seat ? { matchId, seat } : "skip",
+  ) as any | undefined | null;
 
   // Query all card definitions for lookup
   const allCards = useConvexQuery(apiAny.game.getAllCards, {}) as any[] | undefined;
@@ -33,6 +40,28 @@ export function useGameState(matchId: string | undefined) {
       return null;
     }
   }, [viewJson]);
+
+  const openPrompt = useMemo(() => {
+    if (!openPromptJson) return null;
+
+    if (typeof openPromptJson !== "object") return null;
+
+    let data: unknown = undefined;
+    if (typeof (openPromptJson as any).data === "string") {
+      try {
+        data = JSON.parse((openPromptJson as any).data as string);
+      } catch {
+        data = undefined;
+      }
+    } else if (openPromptJson.data !== undefined) {
+      data = (openPromptJson as any).data;
+    }
+
+    return {
+      ...(openPromptJson as Record<string, unknown>),
+      data,
+    };
+  }, [openPromptJson]);
 
   // Build card lookup map
   const cardLookup = useMemo(() => {
@@ -128,7 +157,9 @@ export function useGameState(matchId: string | undefined) {
 
   return {
     meta,
+    seat,
     view,
+    openPrompt,
     cardLookup,
     isMyTurn,
     phase,

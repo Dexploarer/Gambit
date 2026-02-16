@@ -1,5 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+type Seat = "host" | "away";
+
+function clampSeat(value: unknown): Seat | null {
+  return value === "host" || value === "away" ? value : null;
+}
+
+function resolveLifePoints(view: any, seat: Seat | null) {
+  const activeSeat = clampSeat(view?.mySeat) ?? seat ?? "host";
+  const myLP = view?.players?.[activeSeat]?.lifePoints ?? 0;
+  const oppLP = view?.players?.[activeSeat === "host" ? "away" : "host"]?.lifePoints ??
+    0;
+  return { myLP, oppLP };
+}
+
 /**
  * Spectator mode hook for watching an agent play via the HTTP API.
  *
@@ -20,6 +34,7 @@ export interface SpectatorMatchState {
   phase: string;
   gameOver: boolean;
   isAgentTurn: boolean;
+  seat: Seat;
   myLP: number;
   oppLP: number;
   hand: any[];
@@ -44,6 +59,7 @@ export function useAgentSpectator(apiKey: string | null, apiUrl: string | null) 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const activeMatchId = useRef<string | null>(null);
+  const activeMatchSeat = useRef<Seat | null>(null);
   const mountedRef = useRef(true);
 
   const apiFetch = useCallback(
@@ -107,19 +123,23 @@ export function useAgentSpectator(apiKey: string | null, apiUrl: string | null) 
         // If we have an active match, poll its view
         if (activeMatchId.current) {
           const view = await apiFetch(
-            `/api/agent/game/view?matchId=${encodeURIComponent(activeMatchId.current)}&seat=host`,
+            `/api/agent/game/view?matchId=${encodeURIComponent(activeMatchId.current)}${activeMatchSeat.current ? `&seat=${activeMatchSeat.current}` : ""}`,
           );
 
           if (!mountedRef.current) return;
 
           if (view) {
+            const mySeat = clampSeat(activeMatchSeat.current) ?? clampSeat(view.mySeat) ?? "host";
+            activeMatchSeat.current = mySeat;
+            const { myLP, oppLP } = resolveLifePoints(view, mySeat);
             setMatchState({
               matchId: activeMatchId.current!,
               phase: view.phase,
               gameOver: view.gameOver,
-              isAgentTurn: view.currentTurnPlayer === "host",
-              myLP: view.players?.host?.lifePoints ?? 0,
-              oppLP: view.players?.away?.lifePoints ?? 0,
+              seat: mySeat,
+              isAgentTurn: view.currentTurnPlayer === mySeat,
+              myLP,
+              oppLP,
               hand: view.hand ?? [],
               playerField: view.playerField ?? { monsters: [] },
               opponentField: view.opponentField ?? { monsters: [] },
@@ -156,6 +176,7 @@ export function useAgentSpectator(apiKey: string | null, apiUrl: string | null) 
         const activeMatch = await apiFetch("/api/agent/active-match");
         if (mountedRef.current && activeMatch?.matchId) {
           activeMatchId.current = activeMatch.matchId;
+          activeMatchSeat.current = clampSeat(activeMatch.seat) ?? null;
           // Next poll iteration will fetch the view
         }
 
@@ -173,8 +194,9 @@ export function useAgentSpectator(apiKey: string | null, apiUrl: string | null) 
   }, [agent, apiKey, apiUrl, apiFetch]);
 
   /** Manually set the match to watch (called when postMessage provides matchId) */
-  const watchMatch = useCallback((matchId: string) => {
+  const watchMatch = useCallback((matchId: string, seat?: Seat) => {
     activeMatchId.current = matchId;
+    activeMatchSeat.current = clampSeat(seat);
   }, []);
 
   return { agent, matchState, error, loading, watchMatch };

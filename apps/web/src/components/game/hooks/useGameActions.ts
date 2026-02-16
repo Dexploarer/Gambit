@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import * as Sentry from "@sentry/react";
 import { apiAny, useConvexMutation } from "@/lib/convexHelpers";
 import { useAudio } from "@/components/audio/AudioProvider";
+import { type Seat } from "./useGameState";
 
 function sfxForCommand(command: Record<string, unknown>): string | null {
   const type = typeof command.type === "string" ? command.type : "";
@@ -26,7 +27,7 @@ function sfxForCommand(command: Record<string, unknown>): string | null {
   }
 }
 
-export function useGameActions(matchId: string | undefined) {
+export function useGameActions(matchId: string | undefined, seat: Seat) {
   const submitAction = useConvexMutation(apiAny.game.submitAction);
   const { playSfx } = useAudio();
   const [submitting, setSubmitting] = useState(false);
@@ -41,7 +42,7 @@ export function useGameActions(matchId: string | undefined) {
         await submitAction({
           matchId,
           command: JSON.stringify(command),
-          seat: "host",
+          seat,
         });
         const sfx = sfxForCommand(command);
         if (sfx) playSfx(sfx);
@@ -53,7 +54,7 @@ export function useGameActions(matchId: string | undefined) {
         setSubmitting(false);
       }
     },
-    [matchId, submitAction, submitting, playSfx],
+    [matchId, seat, submitAction, submitting, playSfx],
   );
 
   return {
