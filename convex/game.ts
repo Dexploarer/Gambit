@@ -23,7 +23,7 @@ const normalizeDeckId = (deckId: string | undefined): string | null => {
   return trimmed;
 };
 
-const normalizeDeckRecordId = (deckRecord: { deckId?: string }) =>
+const normalizeDeckRecordId = (deckRecord?: { deckId?: string } | null) =>
   normalizeDeckId(deckRecord?.deckId);
 
 const resolveDefaultStarterDeckCode = () => {
@@ -54,7 +54,7 @@ const createStarterDeckFromRecipe = async (ctx: any, userId: string) => {
   }
 
   for (const rc of resolvedCards) {
-    await cards.cards.addCardsToInventory({
+    await cards.cards.addCardsToInventory(ctx, {
       userId,
       cardDefinitionId: rc.cardDefinitionId,
       quantity: rc.quantity,
@@ -517,23 +517,6 @@ export const submitAction = mutation({
   },
 });
 
-export const joinMatch = mutation({
-  args: {
-    matchId: v.string(),
-    awayId: v.string(),
-    awayDeck: v.array(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await match.joinMatch(ctx, {
-      matchId: args.matchId,
-      awayId: args.awayId,
-      awayDeck: args.awayDeck,
-    });
-    return null;
-  },
-});
-
 // ── AI Decision Logic ──────────────────────────────────────────────
 
 function pickAICommand(
@@ -797,13 +780,6 @@ export const getRecentEvents = query({
 export const getActiveMatchByHost = query({
   args: { hostId: v.string() },
   handler: async (ctx, args) => match.getActiveMatchByHost(ctx, args),
-});
-
-export const getOpenLobbyByHost = query({
-  args: { hostId: v.string() },
-  handler: async (ctx, args) => {
-    return await match.getOpenLobbyByHost(ctx, args);
-  },
 });
 
 // ── Story Match Context ─────────────────────────────────────────────
