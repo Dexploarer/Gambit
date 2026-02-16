@@ -29,7 +29,7 @@
   "rewrites": [
     {
       "source": "/((?!api/|_next/|assets/|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|.*\\..*).*)",
-      "destination": "/index.html"
+      "destination": "/"
     }
   ],
   "headers": [
