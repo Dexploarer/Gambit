@@ -130,7 +130,9 @@ export function ChapterMap() {
           >
             {chapters.map((chapter, i) => {
               const completed = isChapterComplete(chapter._id);
-              const prevCompleted = i === 0 || isChapterComplete(chapters[i - 1]._id);
+              const prevChapter = chapters[i - 1];
+              const prevCompleted =
+                i === 0 || (prevChapter && isChapterComplete(prevChapter._id));
               const locked = !completed && !prevCompleted;
               const layout = PANEL_LAYOUTS[i % PANEL_LAYOUTS.length];
               const rotation = ((i * 7 + 3) % 5) - 2;
@@ -140,9 +142,8 @@ export function ChapterMap() {
                   key={chapter._id}
                   type="button"
                   onClick={() => !locked && navigate(`/story/${chapter._id}`)}
-                  className={`comic-panel ${layout} relative overflow-hidden text-left group ${
-                    locked ? "cursor-not-allowed" : "cursor-pointer"
-                  }`}
+                  className={`comic-panel ${layout} relative overflow-hidden text-left group ${locked ? "cursor-not-allowed" : "cursor-pointer"
+                    }`}
                   style={{ rotate: `${rotation}deg` }}
                   variants={panelVariant}
                   whileHover={locked ? {} : { scale: 1.03, rotate: 0, zIndex: 10 }}
@@ -152,11 +153,10 @@ export function ChapterMap() {
                     <img
                       src={chapter.imageUrl || CHAPTER_IMAGES[i + 1]}
                       alt=""
-                      className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
-                        locked
-                          ? "opacity-10 grayscale"
-                          : "opacity-20 group-hover:opacity-30"
-                      }`}
+                      className={`absolute inset-0 w-full h-full object-cover transition-opacity ${locked
+                        ? "opacity-10 grayscale"
+                        : "opacity-20 group-hover:opacity-30"
+                        }`}
                       draggable={false}
                     />
                   )}
@@ -173,9 +173,8 @@ export function ChapterMap() {
                     </div>
                   )}
 
-                  <div className={`relative z-20 flex flex-col justify-between h-full p-4 ${
-                    locked ? "opacity-40" : ""
-                  }`}>
+                  <div className={`relative z-20 flex flex-col justify-between h-full p-4 ${locked ? "opacity-40" : ""
+                    }`}>
                     <div>
                       <span
                         className="text-[10px] text-[#999] uppercase tracking-wider block"

@@ -20,12 +20,16 @@
     "@lunchtable-tcg/engine": "workspace:*",
     "@lunchtable-tcg/match": "workspace:*",
     "@lunchtable-tcg/story": "workspace:*",
-    "convex": "^1.31.6"
+    "@sentry/node": "^10.38.0",
+    "convex": "^1.31.6",
+    "posthog-node": "^5.24.15"
   },
   "devDependencies": {
     "@vercel/blob": "^2.2.0",
     "concurrently": "^9.2.1",
     "typescript": "^5.8.0",
-    "vitest": "^4.0.18"
-  }
+    "vitest": "^4.0.18",
+    "@types/bun": "latest"
+  },
+  "module": "index.ts"
 }

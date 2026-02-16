@@ -24,6 +24,16 @@ const STAGE_BANNERS: Record<string, string> = {
   "1-1-3": STAGE_1_1_3,
 };
 
+const panelVariant = {
+  hidden: { opacity: 0, scale: 0.92, y: 16 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { type: "spring" as const, damping: 18, stiffness: 220 },
+  },
+};
+
 export function StagePanel({
   stage,
   isStarting,
@@ -48,106 +58,118 @@ export function StagePanel({
   const bannerImage = bannerKey ? STAGE_BANNERS[bannerKey] : null;
 
   return (
-    <motion.div
-      className={`paper-panel p-0 overflow-hidden transition-all ${completed ? "opacity-70" : ""}`}
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: completed ? 0.7 : 1, x: 0 }}
-      whileHover={{ x: 4 }}
+    <motion.button
+      type="button"
+      onClick={onFight}
+      disabled={isStarting}
+      className={`comic-panel relative overflow-hidden text-left group w-full h-full ${
+        completed ? "opacity-75" : ""
+      } ${isStarting ? "cursor-wait" : "cursor-pointer"}`}
+      variants={panelVariant}
+      whileHover={{ scale: 1.02, zIndex: 10 }}
+      whileTap={{ scale: 0.97 }}
     >
-      {/* Banner Image */}
+      {/* Panel image */}
       {bannerImage && (
-        <div className="h-24 w-full relative border-b-2 border-[#121212]">
-          <img
-            src={bannerImage}
-            alt={stage.name}
-            className="w-full h-full object-cover grayscale-[0.3]"
-            draggable={false}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+        <img
+          src={bannerImage}
+          alt=""
+          className={`absolute inset-0 w-full h-full object-cover transition-all ${
+            completed
+              ? "opacity-40 grayscale"
+              : "opacity-60 group-hover:opacity-75 grayscale-[0.3]"
+          }`}
+          draggable={false}
+        />
+      )}
+
+      {/* Bottom gradient for text legibility */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+
+      {/* Completed overlay */}
+      {completed && (
+        <div className="absolute top-3 right-3 z-20">
+          <span className="comic-stamp text-[#38a169] border-[#38a169] bg-white/90 text-[10px]">
+            CLEARED
+          </span>
         </div>
       )}
 
-      <div className="p-5 md:p-6 flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span
-              className="text-xs uppercase tracking-wider"
-              style={{ fontFamily: "Special Elite, cursive", color: "#999" }}
-            >
-              Stage {stage.stageNumber}
-            </span>
-            {stage.difficulty && (
-              <span
-                className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 border"
-                style={{ borderColor: diffColor, color: diffColor }}
-              >
-                {stage.difficulty}
-              </span>
-            )}
-            {completed && (
-              <span className="text-[10px] font-bold text-[#38a169]">&#10003;</span>
-            )}
-          </div>
-
-          <h2
-            className="text-xl leading-tight mb-1"
-            style={{ fontFamily: "Outfit, sans-serif", fontWeight: 900 }}
-          >
-            {stage.title ?? stage.name ?? `Stage ${stage.stageNumber}`}
-          </h2>
-
-          <p
-            className="text-sm text-[#666] leading-snug"
+      {/* Content pinned to bottom */}
+      <div className="relative z-10 flex flex-col justify-end h-full p-4 md:p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <span
+            className="text-[10px] uppercase tracking-wider text-white/60"
             style={{ fontFamily: "Special Elite, cursive" }}
           >
-            {stage.description}
-          </p>
-
-          {stage.opponentName && (
-            <p className="text-xs text-[#999] mt-2 uppercase tracking-wider">
-              vs. {stage.opponentName}
-            </p>
-          )}
-
-          {completed && (
-            <div className="flex gap-0.5 mt-2">
-              {[1, 2, 3].map((n) => (
-                <span
-                  key={n}
-                  className="text-sm"
-                  style={{ color: n <= stars ? "#ffcc00" : "#ddd" }}
-                >
-                  &#9733;
-                </span>
-              ))}
-            </div>
-          )}
-
-          {(stage.rewardGold || stage.rewardXp) && !completed && (
-            <div className="flex gap-3 mt-2">
-              {stage.rewardGold && (
-                <span className="text-[10px] text-[#999] uppercase">
-                  +{stage.rewardGold} gold
-                </span>
-              )}
-              {stage.rewardXp && (
-                <span className="text-[10px] text-[#999] uppercase">
-                  +{stage.rewardXp} xp
-                </span>
-              )}
-            </div>
+            Stage {stage.stageNumber}
+          </span>
+          {stage.difficulty && (
+            <span
+              className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 border"
+              style={{ borderColor: diffColor, color: diffColor }}
+            >
+              {stage.difficulty}
+            </span>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onFight}
-          disabled={isStarting}
-          className="tcg-button-primary px-5 py-2.5 text-sm shrink-0 disabled:opacity-50 mt-2"
+        <h2
+          className="text-lg md:text-xl leading-tight text-white"
+          style={{ fontFamily: "Outfit, sans-serif", fontWeight: 900 }}
         >
-          {isStarting ? "..." : completed ? "Replay" : "Fight"}
-        </button>
+          {stage.title ?? stage.name ?? `Stage ${stage.stageNumber}`}
+        </h2>
+
+        {stage.opponentName && (
+          <p
+            className="text-xs text-white/50 mt-0.5 uppercase tracking-wider"
+            style={{ fontFamily: "Special Elite, cursive" }}
+          >
+            vs. {stage.opponentName}
+          </p>
+        )}
+
+        {/* Stars */}
+        {completed && (
+          <div className="flex gap-0.5 mt-1.5">
+            {[1, 2, 3].map((n) => (
+              <span
+                key={n}
+                className="text-sm"
+                style={{ color: n <= stars ? "#ffcc00" : "#666" }}
+              >
+                &#9733;
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Rewards */}
+        {(stage.rewardGold || stage.rewardXp) && !completed && (
+          <div className="flex gap-3 mt-1.5">
+            {stage.rewardGold && (
+              <span className="text-[10px] text-[#ffcc00]/80 uppercase">
+                +{stage.rewardGold} gold
+              </span>
+            )}
+            {stage.rewardXp && (
+              <span className="text-[10px] text-white/50 uppercase">
+                +{stage.rewardXp} xp
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Fight prompt */}
+        {!completed && (
+          <span
+            className="text-[10px] text-[#ffcc00] font-bold uppercase tracking-wider mt-2 animate-pulse"
+          >
+            {isStarting ? "Loading..." : "Click to fight"}
+          </span>
+        )}
       </div>
-    </motion.div>
+    </motion.button>
   );
 }

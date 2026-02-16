@@ -88,7 +88,8 @@ function StoryChapterInner() {
         />
       </header>
 
-      <div className="relative z-10 p-6 max-w-3xl mx-auto">
+      {/* Comic page */}
+      <div className="relative z-10 p-4 md:p-6 max-w-3xl mx-auto">
         {!stages ? (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-4 border-[#121212] border-t-transparent rounded-full animate-spin" />
@@ -101,25 +102,33 @@ function StoryChapterInner() {
           </div>
         ) : (
           <motion.div
-            className="flex flex-col gap-4"
+            className="comic-page grid grid-cols-2 gap-[6px] border-[3px] border-[#121212] bg-[#121212] shadow-zine"
             initial="hidden"
             animate="visible"
-            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.12 } } }}
           >
-            {sorted.map((stage) => (
-              <StagePanel
-                key={stage._id}
-                stage={stage}
-                isStarting={starting === stage.stageNumber}
-                onFight={() => handleStartBattle(stage)}
-                chapterId={chapterId}
-              />
-            ))}
-
-            {error && (
-              <p className="text-red-600 text-sm font-bold uppercase text-center">{error}</p>
-            )}
+            {sorted.map((stage, i) => {
+              // First panel spans full width + taller, rest split bottom row
+              const isHero = i === 0;
+              return (
+                <div
+                  key={stage._id}
+                  className={isHero ? "col-span-2 h-[280px] md:h-[340px]" : "col-span-1 h-[200px] md:h-[260px]"}
+                >
+                  <StagePanel
+                    stage={stage}
+                    isStarting={starting === stage.stageNumber}
+                    onFight={() => handleStartBattle(stage)}
+                    chapterId={chapterId}
+                  />
+                </div>
+              );
+            })}
           </motion.div>
+        )}
+
+        {error && (
+          <p className="text-red-600 text-sm font-bold uppercase text-center mt-4">{error}</p>
         )}
       </div>
     </div>

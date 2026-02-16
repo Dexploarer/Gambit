@@ -9,6 +9,7 @@
  */
 
 import type * as agentAuth from "../agentAuth.js";
+import type * as analytics from "../analytics.js";
 import type * as auth from "../auth.js";
 import type * as cardData from "../cardData.js";
 import type * as crons from "../crons.js";
@@ -25,6 +26,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agentAuth: typeof agentAuth;
+  analytics: typeof analytics;
   auth: typeof auth;
   cardData: typeof cardData;
   crons: typeof crons;

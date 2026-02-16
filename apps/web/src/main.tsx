@@ -12,9 +12,11 @@ import { PrivyAuthProvider } from "@/components/auth/PrivyAuthProvider";
 import { usePrivyAuthForConvex } from "@/hooks/auth/usePrivyAuthForConvex";
 import { App } from "./App";
 import "./globals.css";
+import { PostHogProvider } from "posthog-js/react";
+import posthog from "./lib/posthog";
 
 Sentry.init({
-  dsn: "https://a7569b5f75f669147fd70828a7f15433@o4510892044124160.ingest.us.sentry.io/4510892046155776",
+  dsn: import.meta.env.VITE_SENTRY_DSN,
   integrations: [
     Sentry.reactRouterV7BrowserTracingIntegration({
       useEffect,
@@ -24,7 +26,9 @@ Sentry.init({
       matchRoutes,
     }),
     Sentry.replayIntegration(),
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
   ],
+  enableLogs: true,
   tracesSampleRate: 1.0,
   replaysSessionSampleRate: 0.1,
   replaysOnErrorSampleRate: 1.0,
@@ -58,11 +62,16 @@ createRoot(document.getElementById("root")!).render(
       )}
       showDialog
     >
-      <PrivyAuthProvider>
-        <ConvexProviderWithAuth client={convex} useAuth={usePrivyAuthForConvex}>
-          <App />
-        </ConvexProviderWithAuth>
-      </PrivyAuthProvider>
+      <PostHogProvider client={posthog}>
+        <PrivyAuthProvider>
+          <ConvexProviderWithAuth
+            client={convex}
+            useAuth={usePrivyAuthForConvex}
+          >
+            <App />
+          </ConvexProviderWithAuth>
+        </PrivyAuthProvider>
+      </PostHogProvider>
     </Sentry.ErrorBoundary>
   </StrictMode>,
 );

@@ -17,7 +17,19 @@ White-label trading card game built for both humans and ElizaOS agents. Embedded
 | AI Agents | ElizaOS 1.7.2 |
 | Streaming | retake.tv |
 
+
+## Development Rules
+
+> [!IMPORTANT]
+> **Use Bun Exclusively**
+> This project uses [Bun](https://bun.sh) for everything.
+> - **Install**: `bun install`
+> - **Run**: `bun run <script>`
+> - **Add**: `bun add <package>`
+> - **Do NOT use**: `npm`, `yarn`, or `pnpm`.
+
 ## Quick Start
+
 
 ```bash
 # Install dependencies
