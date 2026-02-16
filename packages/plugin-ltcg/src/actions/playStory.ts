@@ -16,6 +16,7 @@ import { playOneTurn } from "./turnLogic.js";
 import type {
   Action,
   HandlerCallback,
+  MatchActive,
   IAgentRuntime,
   Memory,
   State,
@@ -121,8 +122,9 @@ export const playStoryAction: Action = {
         `Chapter "${chapterTitle}" — Stage ${targetStageNumber}: vs ${opponentName}`,
       );
 
-      if (stageData?.narrative.preMatchDialogue.length) {
-        log.push(`"${stageData.narrative.preMatchDialogue.join(" ")}"`);
+      const preMatchDialogue = stageData?.narrative?.preMatchDialogue;
+      if (preMatchDialogue?.length) {
+        log.push(`"${preMatchDialogue.join(" ")}"`);
       }
 
       if (callback) {
@@ -138,31 +140,31 @@ export const playStoryAction: Action = {
         targetStageNumber,
       );
       const matchId = result.matchId;
-      client.setMatch(matchId);
+      await client.setMatchWithSeat(matchId);
+      const seat = (client.currentSeat ?? "host") as MatchActive["seat"];
       log.push(`Match started: ${matchId}`);
 
       // ── 5. Game loop — play until game over ──────────────────
       let turnCount = 0;
 
       for (let i = 0; i < MAX_TURNS; i++) {
-        const view = await client.getView(matchId);
+        const view = await client.getView(matchId, seat);
 
         if (view.gameOver) break;
 
-        if (view.currentTurnPlayer !== "host") {
+        if (view.currentTurnPlayer !== seat) {
           await sleep(POLL_DELAY);
           continue;
         }
 
         turnCount++;
-        const turnActions = await playOneTurn(matchId, view);
+        const turnActions = await playOneTurn(matchId, view, seat);
         for (const a of turnActions) log.push(a);
       }
 
       // ── 6. Check outcome ─────────────────────────────────────
-      const finalView = await client.getView(matchId);
-      const myLP = finalView.players.host.lifePoints;
-      const oppLP = finalView.players.away.lifePoints;
+      const finalView = await client.getView(matchId, seat);
+      const { myLP, oppLP } = resolveLifePoints(finalView, seat);
       const won = myLP > oppLP;
 
       log.push(
@@ -173,22 +175,22 @@ export const playStoryAction: Action = {
       try {
         const completion = await client.completeStage(matchId);
         log.push(`Stage complete! ${completion.starsEarned} stars earned.`);
-        if (completion.rewards.gold > 0) {
+        if (completion.rewards?.gold > 0) {
           log.push(
-            `Rewards: ${completion.rewards.gold} gold, ${completion.rewards.xp} XP`,
+            `Rewards: ${completion.rewards?.gold ?? 0} gold, ${completion.rewards?.xp ?? 0} XP`,
           );
         }
-        if (completion.rewards.firstClearBonus > 0) {
+        if (completion.rewards?.firstClearBonus > 0) {
           log.push(
-            `First clear bonus: ${completion.rewards.firstClearBonus}!`,
+            `First clear bonus: ${completion.rewards?.firstClearBonus ?? 0}!`,
           );
         }
 
         if (stageData) {
           const postDialogue = won
-            ? stageData.narrative.postMatchWinDialogue
-            : stageData.narrative.postMatchLoseDialogue;
-          if (postDialogue.length) {
+            ? stageData.narrative?.postMatchWinDialogue
+            : stageData.narrative?.postMatchLoseDialogue;
+          if (postDialogue?.length) {
             log.push(`"${postDialogue.join(" ")}"`);
           }
         }
@@ -261,3 +263,23 @@ export const playStoryAction: Action = {
     ],
   ],
 };
+
+function resolveLifePoints(
+  view: {
+    players: {
+      host: { lifePoints: number };
+      away: { lifePoints: number };
+    };
+  },
+  seat: MatchActive["seat"],
+) {
+  return seat === "host"
+    ? {
+      myLP: view.players.host.lifePoints,
+      oppLP: view.players.away.lifePoints,
+    }
+    : {
+      myLP: view.players.away.lifePoints,
+      oppLP: view.players.host.lifePoints,
+    };
+}

@@ -117,6 +117,7 @@ export interface PlayerView {
   opponentDeckCount: number;
   opponentBreakdownsCaused: number;
   currentTurnPlayer: Seat;
+  currentPriorityPlayer: Seat | null;
   turnNumber: number;
   currentPhase: Phase;
   currentChain: ChainLink[];

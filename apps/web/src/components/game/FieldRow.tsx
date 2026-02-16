@@ -25,7 +25,7 @@ export function FieldRow({
       {slots.map((_, i) => {
         const cardIndex = reversed ? cards.length - 1 - i : i;
         const card = cards[cardIndex];
-        const cardDef = card ? cardLookup[card.cardId] : undefined;
+        const cardDef = card ? cardLookup[card.definitionId] : undefined;
         const isHighlighted = card && highlightIds?.has(card.cardId);
 
         return (

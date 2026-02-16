@@ -28,7 +28,8 @@
     "dev": "vite --port 3334",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 3334",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "upload:soundtrack": "bun run scripts/migrate-soundtrack-to-blob.ts"
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.12.0",

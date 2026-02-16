@@ -8,7 +8,7 @@
 import { getClient } from "../client.js";
 import type {
   Action,
-  BoardCard,
+  MatchActive,
   IAgentRuntime,
   Memory,
   State,
@@ -46,18 +46,24 @@ export const getStatusAction: Action = {
 
     if (!matchId) {
       const text =
-        "No active LunchTable match. Use START_LTCG_BATTLE to start one.";
+        "No active LunchTable match. Start one with START_DUEL (quick, alias START_LTCG_DUEL) or START_BATTLE (alias START_LTCG_BATTLE).";
       if (callback) await callback({ text });
       return { success: true, data: { hasMatch: false } };
     }
 
     try {
-      const view = await client.getView(matchId);
+      if (!client.currentSeat) {
+        try {
+          await client.syncSeatFromMatch(matchId);
+        } catch {}
+      }
+
+      const seat = (client.currentSeat ?? "host") as MatchActive["seat"];
+      const view = await client.getView(matchId, seat);
 
       if (view.gameOver) {
         client.setMatch(null);
-        const myLP = view.players.host.lifePoints;
-        const oppLP = view.players.away.lifePoints;
+        const { myLP, oppLP } = resolveLifePoints(view, seat);
         const outcome =
           myLP > oppLP
             ? "Victory!"
@@ -69,18 +75,17 @@ export const getStatusAction: Action = {
         return { success: true, data: { gameOver: true, outcome } };
       }
 
-      const isMyTurn = view.currentTurnPlayer === "host";
-      const myMonsters = (view.playerField?.monsters ?? []).filter(
-        Boolean,
-      ) as BoardCard[];
-      const oppMonsters = (view.opponentField?.monsters ?? []).filter(
-        Boolean,
-      ) as BoardCard[];
+      const isMyTurn = view.currentTurnPlayer === seat;
+      const { myLP, oppLP } = resolveLifePoints(view, seat);
+      const myMonsters = (view.board ?? view.playerField?.monsters ?? []).filter(Boolean);
+      const oppMonsters = (
+        view.opponentBoard ?? view.opponentField?.monsters ?? []
+      ).filter(Boolean);
 
       const text = [
         `Match: ${matchId}`,
         `Phase: ${view.phase} — ${isMyTurn ? "Your turn" : "Opponent's turn"}`,
-        `LP: You ${view.players.host.lifePoints} / Opponent ${view.players.away.lifePoints}`,
+        `LP: You ${myLP} / Opponent ${oppLP}`,
         `Hand: ${view.hand?.length ?? 0} cards | Field: ${myMonsters.length} vs ${oppMonsters.length} monsters`,
       ].join("\n");
 
@@ -125,3 +130,37 @@ export const getStatusAction: Action = {
     ],
   ],
 };
+
+function resolveLifePoints(
+  view: {
+    players?: {
+      host: { lifePoints: number };
+      away: { lifePoints: number };
+    };
+    lifePoints?: number;
+    opponentLifePoints?: number;
+  },
+  seat: MatchActive["seat"],
+) {
+  if (view.lifePoints !== undefined || view.opponentLifePoints !== undefined) {
+    return seat === "host"
+      ? {
+          myLP: view.lifePoints ?? view.opponentLifePoints ?? 0,
+          oppLP: view.opponentLifePoints ?? view.lifePoints ?? 0,
+        }
+      : {
+          myLP: view.opponentLifePoints ?? view.lifePoints ?? 0,
+          oppLP: view.lifePoints ?? view.opponentLifePoints ?? 0,
+        };
+  }
+
+  return seat === "host"
+    ? {
+        myLP: view.players?.host?.lifePoints ?? 0,
+        oppLP: view.players?.away?.lifePoints ?? 0,
+      }
+    : {
+        myLP: view.players?.away?.lifePoints ?? 0,
+        oppLP: view.players?.host?.lifePoints ?? 0,
+      };
+}

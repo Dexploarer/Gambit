@@ -173,25 +173,29 @@ export interface StarterDeck {
   description?: string;
 }
 
-/** Card in the player's hand (from PlayerView.hand) */
-export interface CardInHand {
-  instanceId: string;
-  cardType: "stereotype" | "spell" | "trap";
-  name: string;
-  attack?: number;
-  defense?: number;
-  level?: number;
-  description?: string;
-}
+/** Card identifier in the player's hand (from PlayerView.hand). */
+export type CardInHand = string;
 
 /** Card on the game field */
 export interface BoardCard {
-  instanceId: string;
-  name: string;
-  attack: number;
-  defense: number;
+  cardId: string;
+  definitionId?: string;
   position?: "attack" | "defense";
   faceDown?: boolean;
+  canAttack?: boolean;
+  hasAttackedThisTurn?: boolean;
+  changedPositionThisTurn?: boolean;
+  viceCounters?: number;
+  temporaryBoosts?: { attack: number; defense: number };
+  equippedCards?: string[];
+  turnSummoned?: number;
+
+  // Legacy compatibility when logs or older callers pass instance-based objects.
+  instanceId?: string;
+  name?: string;
+  attack?: number;
+  defense?: number;
+  level?: number;
 }
 
 /** GET /api/agent/game/view */
@@ -206,16 +210,37 @@ export interface PlayerView {
     | "breakdown_check"
     | "end";
   currentTurnPlayer: "host" | "away";
-  players: {
+  players?: {
     host: { lifePoints: number };
     away: { lifePoints: number };
   };
   hand: CardInHand[];
-  playerField: {
+  board: BoardCard[];
+  spellTrapZone?: BoardCard[];
+  fieldSpell?: BoardCard | null;
+  graveyard?: string[];
+  banished?: string[];
+  lifePoints?: number;
+  deckCount?: number;
+  breakdownsCaused?: number;
+  opponentLifePoints?: number;
+  opponentDeckCount?: number;
+  opponentBreakdownsCaused?: number;
+  currentChain?: unknown[];
+  mySeat?: "host" | "away";
+  opponentHandCount?: number;
+  opponentBoard: BoardCard[];
+  opponentSpellTrapZone?: BoardCard[];
+  opponentFieldSpell?: BoardCard | null;
+  opponentGraveyard?: string[];
+  opponentBanished?: string[];
+
+  // Legacy compatibility for old masking shape consumers.
+  playerField?: {
     monsters: (BoardCard | null)[];
     spellTraps?: (unknown | null)[];
   };
-  opponentField: {
+  opponentField?: {
     monsters: (BoardCard | null)[];
     spellTraps?: (unknown | null)[];
   };
@@ -233,6 +258,19 @@ export interface MatchStatus {
   stageNumber: number | null;
   outcome: string | null;
   starsEarned: number | null;
+  hostId?: string | null;
+  awayId?: string | null;
+  seat?: "host" | "away";
+}
+
+export interface MatchActive {
+  matchId: string | null;
+  status: string | null;
+  mode?: string;
+  createdAt?: number;
+  hostId?: string | null;
+  awayId?: string | null;
+  seat?: "host" | "away";
 }
 
 // ── Story Mode Types ─────────────────────────────────────────────
@@ -287,22 +325,23 @@ export interface StageCompletionResult {
 
 /** Commands sent via POST /api/agent/game/action */
 export type GameCommand =
-  | { type: "SUMMON"; cardInstanceId: string; position: "attack" | "defense" }
-  | { type: "SET_MONSTER"; cardInstanceId: string }
-  | { type: "ACTIVATE_SPELL"; cardInstanceId: string }
-  | { type: "ACTIVATE_TRAP"; cardInstanceId: string }
+  | { type: "SUMMON"; cardId: string; position: "attack" | "defense"; tributeCardIds?: string[] }
+  | { type: "SET_MONSTER"; cardId: string }
+  | { type: "ACTIVATE_SPELL"; cardId: string }
+  | { type: "SET_SPELL_TRAP"; cardId: string }
+  | { type: "ACTIVATE_TRAP"; cardId: string }
   | {
       type: "DECLARE_ATTACK";
-      attackerInstanceId: string;
-      targetInstanceId?: string;
+      attackerId: string;
+      targetId?: string;
     }
   | { type: "ADVANCE_PHASE" }
   | { type: "END_TURN" }
   | {
       type: "CHANGE_POSITION";
-      cardInstanceId: string;
+      cardId: string;
       newPosition: string;
     }
-  | { type: "FLIP_SUMMON"; cardInstanceId: string }
-  | { type: "CHAIN_RESPONSE"; responseType: string }
+  | { type: "FLIP_SUMMON"; cardId: string }
+  | { type: "CHAIN_RESPONSE"; pass: boolean; cardId?: string }
   | { type: "SURRENDER" };

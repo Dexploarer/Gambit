@@ -78,7 +78,7 @@ export const getRecentEvents = query({
 });
 
 /**
- * Get the most recent active (or waiting) match where the given player is host.
+ * Get the most recent active (or waiting) match where the given player is host or away.
  * Returns the match document or null if none found.
  */
 export const getActiveMatchByHost = query({
@@ -86,19 +86,52 @@ export const getActiveMatchByHost = query({
   returns: v.any(),
   handler: async (ctx, args) => {
     // Check active matches first
-    const active = await ctx.db
+    const activeAsHost = await ctx.db
       .query("matches")
       .withIndex("by_host", (q) => q.eq("hostId", args.hostId))
       .filter((q) => q.eq(q.field("status"), "active"))
       .order("desc")
       .first();
-    if (active) return active;
+    if (activeAsHost) return activeAsHost;
+
+    const activeAsAway = await ctx.db
+      .query("matches")
+      .withIndex("by_away", (q) => q.eq("awayId", args.hostId))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .order("desc")
+      .first();
+    if (activeAsAway) return activeAsAway;
 
     // Fall back to waiting matches
+    const active = await ctx.db
+      .query("matches")
+      .withIndex("by_host", (q) => q.eq("hostId", args.hostId))
+      .filter((q) => q.eq(q.field("status"), "waiting"))
+      .order("desc")
+      .first();
+    if (active) return active;
+
+    return await ctx.db
+      .query("matches")
+      .withIndex("by_away", (q) => q.eq("awayId", args.hostId))
+      .filter((q) => q.eq(q.field("status"), "waiting"))
+      .order("desc")
+      .first();
+  },
+});
+
+/**
+ * Get the most recent waiting match where the host has not yet filled the away seat.
+ */
+export const getOpenLobbyByHost = query({
+  args: { hostId: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
     return await ctx.db
       .query("matches")
       .withIndex("by_host", (q) => q.eq("hostId", args.hostId))
       .filter((q) => q.eq(q.field("status"), "waiting"))
+      .filter((q) => q.eq(q.field("awayId"), null))
       .order("desc")
       .first();
   },

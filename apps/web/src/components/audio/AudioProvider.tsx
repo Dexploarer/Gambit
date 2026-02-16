@@ -13,8 +13,12 @@ import {
   toAbsoluteTrackUrl,
   type SoundtrackManifest,
 } from "@/lib/audio/soundtrack";
+import { MUSIC_BUTTON } from "@/lib/blobUrls";
 
 const AUDIO_SETTINGS_STORAGE_KEY = "ltcg.audio.settings.v1";
+const SOUNDTRACK_MANIFEST_SOURCE = "/api/soundtrack";
+const VOLUME_PRESET_VALUES = [0, 25, 50, 75, 100];
+const MUSIC_BUTTON_FALLBACK = "/lunchtable/music-button.png";
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -44,10 +48,9 @@ const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   sfxMuted: false,
 };
 
-function loadStoredSettings(): AudioSettings {
+function parseStoredSettings(raw: string | null): AudioSettings {
   if (typeof window === "undefined") return DEFAULT_AUDIO_SETTINGS;
   try {
-    const raw = window.localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_AUDIO_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<AudioSettings>;
     return {
@@ -59,6 +62,11 @@ function loadStoredSettings(): AudioSettings {
   } catch {
     return DEFAULT_AUDIO_SETTINGS;
   }
+}
+
+function loadStoredSettings(): AudioSettings {
+  if (typeof window === "undefined") return DEFAULT_AUDIO_SETTINGS;
+  return parseStoredSettings(window.localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY));
 }
 
 interface AudioContextValue {
@@ -91,6 +99,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
 
   const musicAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxPoolRef = useRef<HTMLAudioElement[]>([]);
+  const musicPreloadRef = useRef<HTMLAudioElement | null>(null);
   const settingsRef = useRef<AudioSettings>(settings);
   const soundtrackRef = useRef<SoundtrackManifest | null>(soundtrack);
   const currentQueueRef = useRef<string[]>([]);
@@ -115,6 +124,9 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       pool.push(sfx);
     }
     sfxPoolRef.current = pool;
+    musicPreloadRef.current = new Audio();
+    musicPreloadRef.current.preload = "auto";
+    musicPreloadRef.current.crossOrigin = "anonymous";
 
     return () => {
       audio.pause();
@@ -124,7 +136,27 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         sfx.pause();
         sfx.src = "";
       }
+      if (musicPreloadRef.current) {
+        musicPreloadRef.current.pause();
+        musicPreloadRef.current.src = "";
+      }
       sfxPoolRef.current = [];
+      musicPreloadRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== AUDIO_SETTINGS_STORAGE_KEY) return;
+      const nextSettings = parseStoredSettings(event.newValue);
+      setSettings(nextSettings);
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
@@ -134,6 +166,17 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       setAutoplayBlocked(false);
     } catch {
       setAutoplayBlocked(true);
+    }
+  }, []);
+
+  const preloadTrack = useCallback((trackUrl: string) => {
+    const preload = musicPreloadRef.current;
+    if (!preload) return;
+
+    const absolute = toAbsoluteTrackUrl(trackUrl);
+    if (preload.src !== absolute) {
+      preload.src = absolute;
+      preload.load();
     }
   }, []);
 
@@ -160,11 +203,16 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         audio.pause();
         return;
       }
+
+      const prefetchIndex = index + 1 >= queue.length ? 0 : index + 1;
+      const prefetchTrack = queue[prefetchIndex];
+      if (prefetchTrack) preloadTrack(prefetchTrack);
+
       if (unlockedRef.current) {
         void safePlay(audio);
       }
     },
-    [safePlay],
+    [safePlay, preloadTrack],
   );
 
   const advanceTrack = useCallback(() => {
@@ -216,14 +264,14 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     const load = async () => {
       setLoading(true);
       try {
-        const manifest = await loadSoundtrackManifest("/soundtrack.in");
+        const manifest = await loadSoundtrackManifest(SOUNDTRACK_MANIFEST_SOURCE);
         if (!cancelled) setSoundtrack(manifest);
       } catch {
         if (!cancelled) {
           setSoundtrack({
             playlists: { default: [] },
             sfx: {},
-            source: "/soundtrack.in",
+            source: SOUNDTRACK_MANIFEST_SOURCE,
             loadedAt: Date.now(),
           });
         }
@@ -274,7 +322,11 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   }, [soundtrack, contextKey, playTrackAtIndex]);
 
   useEffect(() => {
-    window.localStorage.setItem(AUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    try {
+      window.localStorage.setItem(AUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch {
+      // Ignore storage failures (private mode, quota exceeded, blocked storage)
+    }
   }, [settings]);
 
   const playSfx = useCallback((sfxId: string) => {
@@ -338,8 +390,14 @@ export function useAudio(): AudioContextValue {
 
 function formatTrackLabel(track: string | null): string {
   if (!track) return "No track";
-  const parts = track.split("/");
-  return parts[parts.length - 1] || track;
+  const [clean = ""] = track.split("?");
+  const parts = clean.split("/");
+  const raw = parts.at(-1) ?? track;
+  try {
+    return decodeURIComponent(raw) || track;
+  } catch {
+    return raw || track;
+  }
 }
 
 export function AudioControlsDock() {
@@ -355,20 +413,74 @@ export function AudioControlsDock() {
     loading,
   } = useAudio();
   const [open, setOpen] = useState(false);
+  const [buttonImageSrc, setButtonImageSrc] = useState(MUSIC_BUTTON);
+
+  const musicVolumePercent = Math.round(settings.musicVolume * 100);
+  const sfxVolumePercent = Math.round(settings.sfxVolume * 100);
+
+  const presetButtons = (type: "music" | "sfx") => (
+    <div className="mt-1.5 flex gap-1.5">
+      {VOLUME_PRESET_VALUES.map((preset) => (
+        <button
+          type="button"
+          key={`${type}-${preset}`}
+          onClick={() =>
+            type === "music" ? setMusicVolume(preset / 100) : setSfxVolume(preset / 100)
+          }
+          className={`text-[10px] px-2 py-1 border transition-all ${
+            (type === "music" ? musicVolumePercent : sfxVolumePercent) === preset
+              ? "border-[#ffcc00] bg-[#121212] text-[#ffcc00]"
+              : "border-[#121212] hover:border-[#ffcc00]/70"
+          }`}
+          style={{ fontFamily: "Outfit, sans-serif" }}
+        >
+          {preset}
+        </button>
+      ))}
+    </div>
+  );
+
+  const panelTransitionClass = open
+    ? "max-h-80 opacity-100 translate-y-0 scale-100 pointer-events-auto"
+    : "max-h-0 opacity-0 -translate-y-2 scale-95 pointer-events-none overflow-hidden";
+
+  const sharedRangeClasses =
+    "h-1.5 w-full cursor-pointer accent-[#121212] rounded-full bg-[#121212]/15";
 
   return (
     <div className="fixed top-3 right-3 z-[60]">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="paper-panel px-3 py-1.5 text-xs font-black uppercase tracking-wider hover:-translate-y-0.5 transition-transform"
-        style={{ fontFamily: "Outfit, sans-serif" }}
+        aria-label={open ? "Close audio options" : "Open audio options"}
+        title={open ? "Close audio options" : "Open audio options"}
+        className="group block rounded-sm transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcc00]"
+        aria-expanded={open}
+        aria-controls="audio-controls-panel"
       >
-        Audio
+        <img
+          src={buttonImageSrc}
+          alt="Open music options"
+          className="w-[110px] h-auto select-none drop-shadow-[0_6px_10px_rgba(0,0,0,0.45)] transition-transform duration-150 group-hover:drop-shadow-[0_8px_14px_rgba(0,0,0,0.55)]"
+          draggable={false}
+          loading="eager"
+          width={110}
+          height={35}
+          onError={() => {
+            setButtonImageSrc((current) =>
+              current === MUSIC_BUTTON_FALLBACK ? current : MUSIC_BUTTON_FALLBACK,
+            );
+          }}
+        />
       </button>
 
-      {open && (
-        <div className="paper-panel mt-2 w-72 p-3 bg-[#fdfdfb]/95 backdrop-blur">
+      <div
+        id="audio-controls-panel"
+        className={`paper-panel mt-2 w-72 p-3 transform-gpu transition-[max-height,opacity,transform] duration-300 ease-[cubic-bezier(.22,.61,.36,1)] backdrop-blur-sm ${panelTransitionClass}`}
+        style={{ willChange: "transform, opacity, max-height" }}
+        aria-hidden={!open}
+      >
+        <div className={open ? "" : "invisible pointer-events-none"}>
           <div className="flex items-center justify-between mb-2">
             <p
               className="text-[10px] uppercase tracking-wider text-[#121212]/60"
@@ -386,7 +498,7 @@ export function AudioControlsDock() {
           </div>
 
           <div className="space-y-3">
-            <div>
+            <div className="rounded border border-[#121212]/20 p-2">
               <div className="flex items-center justify-between mb-1">
                 <span
                   className="text-[11px] font-bold uppercase"
@@ -394,27 +506,38 @@ export function AudioControlsDock() {
                 >
                   Music
                 </span>
-                <button
-                  type="button"
-                  onClick={toggleMusicMuted}
-                  className="text-[10px] underline uppercase"
-                  style={{ fontFamily: "Outfit, sans-serif" }}
-                >
-                  {settings.musicMuted ? "Unmute" : "Mute"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-[10px] text-[#121212]/70"
+                    style={{ fontFamily: "Outfit, sans-serif" }}
+                  >
+                    {musicVolumePercent}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleMusicMuted}
+                    aria-label={settings.musicMuted ? "Unmute music" : "Mute music"}
+                    className="text-[10px] underline uppercase"
+                    style={{ fontFamily: "Outfit, sans-serif" }}
+                  >
+                    {settings.musicMuted ? "Unmute" : "Mute"}
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
                 min={0}
                 max={100}
                 step={1}
-                value={Math.round(settings.musicVolume * 100)}
+                value={musicVolumePercent}
                 onChange={(event) => setMusicVolume(Number(event.target.value) / 100)}
-                className="w-full"
+                aria-label="Music volume"
+                className={sharedRangeClasses}
               />
+              {presetButtons("music")}
             </div>
 
-            <div>
+            <div className="rounded border border-[#121212]/20 p-2">
               <div className="flex items-center justify-between mb-1">
                 <span
                   className="text-[11px] font-bold uppercase"
@@ -422,24 +545,35 @@ export function AudioControlsDock() {
                 >
                   SFX
                 </span>
-                <button
-                  type="button"
-                  onClick={toggleSfxMuted}
-                  className="text-[10px] underline uppercase"
-                  style={{ fontFamily: "Outfit, sans-serif" }}
-                >
-                  {settings.sfxMuted ? "Unmute" : "Mute"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-[10px] text-[#121212]/70"
+                    style={{ fontFamily: "Outfit, sans-serif" }}
+                  >
+                    {sfxVolumePercent}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleSfxMuted}
+                    aria-label={settings.sfxMuted ? "Unmute sound effects" : "Mute sound effects"}
+                    className="text-[10px] underline uppercase"
+                    style={{ fontFamily: "Outfit, sans-serif" }}
+                  >
+                    {settings.sfxMuted ? "Unmute" : "Mute"}
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
                 min={0}
                 max={100}
                 step={1}
-                value={Math.round(settings.sfxVolume * 100)}
+                value={sfxVolumePercent}
                 onChange={(event) => setSfxVolume(Number(event.target.value) / 100)}
-                className="w-full"
+                aria-label="Sound effects volume"
+                className={sharedRangeClasses}
               />
+              {presetButtons("sfx")}
             </div>
           </div>
 
@@ -452,7 +586,7 @@ export function AudioControlsDock() {
             </p>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

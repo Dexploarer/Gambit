@@ -2,15 +2,18 @@
  * @lunchtable-tcg/plugin-ltcg
  *
  * ElizaOS plugin for playing LunchTable Trading Card Game battles.
- * Enables AI agents (running in milaidy or standalone) to play story mode
- * battles via the Convex HTTP API.
+ * Enables AI agents (milaidy, ClawDBot, or standalone runtimes) to play
+ * story mode and quick-duel matches via the Convex HTTP API.
  *
  * Required config:
  *   LTCG_API_URL — Convex site URL (e.g. https://scintillating-mongoose-458.convex.site)
  *   LTCG_API_KEY — Agent API key from /api/agent/register (starts with ltcg_)
  *
  * Actions:
+ *   START_LTCG_DUEL    — Start a quick AI-vs-human duel (no chapter)
+ *   START_DUEL         — Compatibility alias for START_LTCG_DUEL
  *   START_LTCG_BATTLE  — Start a story mode battle
+ *   START_BATTLE       — Compatibility alias for START_LTCG_BATTLE
  *   PLAY_LTCG_TURN     — Auto-play one turn (summon, attack, end)
  *   PLAY_LTCG_STORY    — Play through a full story stage (start → loop → complete)
  *   CHECK_LTCG_STATUS  — Check current match state
@@ -22,6 +25,7 @@
  *
  * Routes:
  *   GET /api/status — Plugin health and match state for monitoring
+ *   GET /status — Legacy health endpoint alias for compatibility
  *
  * Events:
  *   ACTION_STARTED / ACTION_COMPLETED — Logs LTCG action activity
@@ -30,13 +34,14 @@
 
 import { initClient } from "./client.js";
 import { gameStateProvider } from "./provider.js";
-import { startBattleAction } from "./actions/startBattle.js";
+import { startBattleAction, startBattleAliasAction } from "./actions/startBattle.js";
+import { startDuelAction, startDuelAliasAction } from "./actions/startDuel.js";
 import { playTurnAction } from "./actions/playTurn.js";
 import { getStatusAction } from "./actions/getStatus.js";
 import { surrenderAction } from "./actions/surrender.js";
 import { playStoryAction } from "./actions/playStory.js";
 import { getSoundtrackAction } from "./actions/getSoundtrack.js";
-import { statusRoute } from "./routes/status.js";
+import { statusRoute, statusRouteLegacy } from "./routes/status.js";
 import { ltcgEvents } from "./events.js";
 import type { Plugin, IAgentRuntime } from "./types.js";
 
@@ -76,11 +81,24 @@ const plugin: Plugin = {
     // Verify credentials
     const me = await client.getMe();
     console.log(`[LTCG] Connected as "${me.name}" (${me.apiKeyPrefix})`);
+
+    // If the agent already has an active match, hydrate it so seat-aware actions work.
+    try {
+      const activeMatch = await client.getActiveMatch();
+      if (activeMatch?.matchId) {
+        await client.setMatchWithSeat(activeMatch.matchId);
+      }
+    } catch {
+      // Ignore if no active match endpoint is reachable (initial startup or transient error).
+    }
   },
 
   providers: [gameStateProvider],
 
   actions: [
+    startDuelAliasAction,
+    startDuelAction,
+    startBattleAliasAction,
     startBattleAction,
     playTurnAction,
     playStoryAction,
@@ -89,7 +107,7 @@ const plugin: Plugin = {
     getSoundtrackAction,
   ],
 
-  routes: [statusRoute],
+  routes: [statusRoute, statusRouteLegacy],
 
   events: ltcgEvents,
 };
@@ -99,13 +117,15 @@ export default plugin;
 // Re-export for consumers
 export { LTCGClient, LTCGApiError, getClient, initClient } from "./client.js";
 export { gameStateProvider } from "./provider.js";
-export { startBattleAction } from "./actions/startBattle.js";
+export { startDuelAction } from "./actions/startDuel.js";
+export { startDuelAliasAction } from "./actions/startDuel.js";
+export { startBattleAction, startBattleAliasAction } from "./actions/startBattle.js";
 export { playTurnAction } from "./actions/playTurn.js";
 export { getStatusAction } from "./actions/getStatus.js";
 export { surrenderAction } from "./actions/surrender.js";
 export { playStoryAction } from "./actions/playStory.js";
 export { getSoundtrackAction } from "./actions/getSoundtrack.js";
-export { statusRoute } from "./routes/status.js";
+export { statusRoute, statusRouteLegacy } from "./routes/status.js";
 export { ltcgEvents } from "./events.js";
 export type {
   AgentInfo,

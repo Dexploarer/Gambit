@@ -9,6 +9,7 @@ import type {
   AgentInfo,
   Chapter,
   GameCommand,
+  MatchActive,
   MatchStatus,
   PlayerView,
   StageCompletionResult,
@@ -36,6 +37,7 @@ export class LTCGClient {
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private matchId: string | null = null;
+  private seat: MatchActive["seat"] | null = null;
 
   constructor(apiUrl: string, apiKey: string) {
     this.apiUrl = apiUrl.replace(/\/$/, "");
@@ -52,8 +54,39 @@ export class LTCGClient {
     return this.matchId !== null;
   }
 
+  get currentSeat(): MatchActive["seat"] | null {
+    return this.seat;
+  }
+
+  setSeat(seat: MatchActive["seat"] | null): void {
+    this.seat = seat;
+  }
+
   setMatch(id: string | null): void {
     this.matchId = id;
+    if (!id) this.seat = null;
+  }
+
+  async setMatchWithSeat(id: string | null): Promise<void> {
+    this.setMatch(id);
+    if (!id) return;
+    try {
+      await this.syncSeatFromMatch(id);
+    } catch {
+      // Seat sync is best-effort; gameplay can continue with host fallback.
+    }
+  }
+
+  async syncSeatFromMatch(matchId: string): Promise<MatchActive["seat"] | null> {
+    const status = await this.getMatchStatus(matchId);
+    const seat = status.seat;
+
+    if (seat === "host" || seat === "away") {
+      this.seat = seat;
+      return seat;
+    }
+
+    return null;
   }
 
   // ── Agent endpoints ──────────────────────────────────────────
@@ -86,21 +119,44 @@ export class LTCGClient {
     return this.post("/api/agent/game/start", { chapterId, stageNumber });
   }
 
+  /** POST /api/agent/game/start-duel — start a quick AI-vs-human duel */
+  async startDuel(): Promise<{ matchId: string }> {
+    return this.post("/api/agent/game/start-duel", {});
+  }
+
   /** POST /api/agent/game/action — submit a game command */
   async submitAction(
     matchId: string,
     command: GameCommand,
-    seat: "host" | "away" = "host",
+    seat?: MatchActive["seat"],
   ): Promise<unknown> {
-    return this.post("/api/agent/game/action", { matchId, command, seat });
+    const resolvedSeat = seat ?? this.seat;
+    const payload: {
+      matchId: string;
+      command: GameCommand;
+      seat?: MatchActive["seat"];
+    } = { matchId, command };
+
+    if (resolvedSeat) {
+      payload.seat = resolvedSeat;
+    }
+
+    return this.post("/api/agent/game/action", payload);
   }
 
   /** GET /api/agent/game/view — get player's view of game state */
   async getView(
     matchId: string,
-    seat: "host" | "away" = "host",
+    seat?: MatchActive["seat"],
   ): Promise<PlayerView> {
-    const qs = `matchId=${encodeURIComponent(matchId)}&seat=${seat}`;
+    const resolvedSeat = seat ?? this.seat;
+    const query = [`matchId=${encodeURIComponent(matchId)}`];
+
+    if (resolvedSeat) {
+      query.push(`seat=${encodeURIComponent(resolvedSeat)}`);
+    }
+
+    const qs = query.join("&");
     return this.get(`/api/agent/game/view?${qs}`);
   }
 
@@ -108,6 +164,11 @@ export class LTCGClient {
   async getMatchStatus(matchId: string): Promise<MatchStatus> {
     const qs = `matchId=${encodeURIComponent(matchId)}`;
     return this.get(`/api/agent/game/match-status?${qs}`);
+  }
+
+  /** GET /api/agent/active-match — active match for this agent */
+  async getActiveMatch(): Promise<MatchActive> {
+    return this.get("/api/agent/active-match");
   }
 
   // ── Story endpoints ────────────────────────────────────────────

@@ -41,6 +41,9 @@ export function Decks() {
     apiAny.auth.currentUser,
     isAuthenticated ? {} : "skip",
   ) as { activeDeckId?: string } | null | undefined;
+  const hasActiveDeck = normalizeDeckId(currentUser?.activeDeckId) !== null;
+  const hasAnyDeck = (userDecks?.length ?? 0) > 0;
+  const canCreateDeck = hasAnyDeck || hasActiveDeck;
 
   const setActiveDeck = useConvexMutation(apiAny.game.setActiveDeck);
   const createDeck = useConvexMutation(apiAny.game.createDeck);
@@ -60,6 +63,10 @@ export function Decks() {
   };
 
   const handleCreateDeck = async () => {
+    if (!canCreateDeck) {
+      setCreationError("Create a starter deck before making additional decks.");
+      return;
+    }
     setCreating(true);
     setCreationError("");
     try {
@@ -102,12 +109,20 @@ export function Decks() {
         <button
           type="button"
           onClick={handleCreateDeck}
-          disabled={creating}
+          disabled={creating || !canCreateDeck}
           className="tcg-button-primary px-5 py-2.5 text-sm disabled:opacity-50"
         >
-          {creating ? "Creating..." : "+ New Deck"}
+          {creating ? "Creating..." : canCreateDeck ? "+ New Deck" : "Create Starter Deck First"}
         </button>
       </header>
+
+      {!canCreateDeck ? (
+        <div className="max-w-3xl mx-auto px-6 pt-4">
+          <p className="text-sm font-bold uppercase text-[#666]">
+            Pick a starter deck before creating a custom deck.
+          </p>
+        </div>
+      ) : null}
 
       {creationError ? (
         <div className="max-w-3xl mx-auto px-6 pt-4">

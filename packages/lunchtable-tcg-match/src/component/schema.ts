@@ -5,7 +5,7 @@ export default defineSchema({
   // Match metadata — status, players, mode, winner
   matches: defineTable({
     hostId: v.string(),
-    awayId: v.string(),
+    awayId: v.union(v.string(), v.null()),
     mode: v.union(v.literal("pvp"), v.literal("story")),
     status: v.union(
       v.literal("waiting"),
@@ -15,7 +15,7 @@ export default defineSchema({
     winner: v.optional(v.union(v.literal("host"), v.literal("away"))),
     endReason: v.optional(v.string()),
     hostDeck: v.array(v.string()),
-    awayDeck: v.array(v.string()),
+    awayDeck: v.union(v.array(v.string()), v.null()),
     isAIOpponent: v.boolean(),
     createdAt: v.number(),
     startedAt: v.optional(v.number()),

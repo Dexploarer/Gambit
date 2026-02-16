@@ -114,6 +114,113 @@ function errorResponse(message: string, status = 400) {
   return jsonResponse({ error: message }, status);
 }
 
+type MatchSeat = "host" | "away";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+function parseLegacyResponseType(
+  responseType: unknown,
+): boolean | undefined {
+  if (typeof responseType === "boolean") return responseType;
+  if (typeof responseType !== "string") return undefined;
+
+  const normalized = responseType.toLowerCase().trim();
+  if (normalized === "pass") return true;
+  if (normalized === "play" || normalized === "continue" || normalized === "no") {
+    return false;
+  }
+
+  return undefined;
+}
+
+function normalizeGameCommand(rawCommand: unknown): unknown {
+  if (!isPlainObject(rawCommand)) {
+    return rawCommand;
+  }
+
+  const command = { ...rawCommand };
+
+  const legacyToCanonical: Record<string, string> = {
+    cardInstanceId: "cardId",
+    attackerInstanceId: "attackerId",
+    targetInstanceId: "targetId",
+    newPosition: "position",
+  };
+
+  for (const [legacyKey, canonicalKey] of Object.entries(legacyToCanonical)) {
+    if (legacyKey in command && !(canonicalKey in command)) {
+      command[canonicalKey] = command[legacyKey];
+    }
+    if (legacyKey in command) {
+      delete command[legacyKey];
+    }
+  }
+
+  if (
+    command.type === "CHAIN_RESPONSE" &&
+    !("pass" in command) &&
+    "responseType" in command
+  ) {
+    const parsedPass = parseLegacyResponseType(command.responseType);
+    if (parsedPass !== undefined) {
+      command.pass = parsedPass;
+      delete command.responseType;
+    }
+  }
+
+  return command;
+}
+
+async function resolveMatchAndSeat(
+  ctx: { runQuery: any },
+  agentUserId: string,
+  matchId: string,
+  requestedSeat?: string,
+) {
+  const meta = await ctx.runQuery(api.game.getMatchMeta, { matchId });
+  if (!meta) {
+    throw new Error("Match not found");
+  }
+
+  const hostId = (meta as any).hostId;
+  const awayId = (meta as any).awayId;
+
+  if (requestedSeat !== undefined && requestedSeat !== "host" && requestedSeat !== "away") {
+    throw new Error("seat must be 'host' or 'away'.");
+  }
+
+  const seat = requestedSeat as MatchSeat | undefined;
+
+  if (seat === "host") {
+    if (hostId !== agentUserId) {
+      throw new Error("You are not the host in this match.");
+    }
+    return { meta, seat: "host" as MatchSeat };
+  }
+
+  if (seat === "away") {
+    if (awayId !== agentUserId) {
+      throw new Error("You are not the away player in this match.");
+    }
+    return { meta, seat: "away" as MatchSeat };
+  }
+
+  if (hostId === agentUserId) {
+    return { meta, seat: "host" as MatchSeat };
+  }
+  if (awayId === agentUserId) {
+    return { meta, seat: "away" as MatchSeat };
+  }
+
+  throw new Error("You are not a participant in this match.");
+}
+
 // ── Routes ───────────────────────────────────────────────────────
 
 corsRoute({
@@ -219,6 +326,24 @@ corsRoute({
 });
 
 corsRoute({
+  path: "/api/agent/game/start-duel",
+  method: "POST",
+  handler: async (ctx, request) => {
+    const agent = await authenticateAgent(ctx, request);
+    if (!agent) return errorResponse("Unauthorized", 401);
+
+    try {
+      const result = await ctx.runMutation(api.agentAuth.agentStartDuel, {
+        agentUserId: agent.userId,
+      });
+      return jsonResponse(result);
+    } catch (e: any) {
+      return errorResponse(e.message, 422);
+    }
+  },
+});
+
+corsRoute({
   path: "/api/agent/game/action",
   method: "POST",
   handler: async (ctx, request) => {
@@ -226,21 +351,46 @@ corsRoute({
     if (!agent) return errorResponse("Unauthorized", 401);
 
     const body = await request.json();
-    const { matchId, command, seat } = body;
+    const { matchId, command, seat: requestedSeat } = body;
 
-    if (!matchId || !command || !seat) {
-      return errorResponse("matchId, command, and seat are required.");
+    if (!matchId || !command) {
+      return errorResponse("matchId and command are required.");
     }
 
-    if (seat !== "host" && seat !== "away") {
-      return errorResponse("seat must be 'host' or 'away'.");
+    let resolvedSeat: MatchSeat;
+    try {
+      ({ seat: resolvedSeat } = await resolveMatchAndSeat(
+        ctx,
+        agent.userId,
+        matchId,
+        requestedSeat,
+      ));
+    } catch (e: any) {
+      return errorResponse(e.message, 422);
+    }
+
+    let parsedCommand = command;
+    if (typeof command === "string") {
+      try {
+        parsedCommand = JSON.parse(command);
+      } catch {
+        return errorResponse("command must be valid JSON or a JSON-compatible object.");
+      }
+    }
+    if (!isPlainObject(parsedCommand)) {
+      return errorResponse("command must be an object.");
+    }
+
+    const normalizedCommand = normalizeGameCommand(parsedCommand);
+    if (!isPlainObject(normalizedCommand)) {
+      return errorResponse("command must be an object after normalization.");
     }
 
     try {
       const result = await ctx.runMutation(api.game.submitAction, {
         matchId,
-        command: typeof command === "string" ? command : JSON.stringify(command),
-        seat,
+        command: JSON.stringify(normalizedCommand),
+        seat: resolvedSeat,
       });
       return jsonResponse(result);
     } catch (e: any) {
@@ -258,14 +408,22 @@ corsRoute({
 
     const url = new URL(request.url);
     const matchId = url.searchParams.get("matchId");
-    const seat = url.searchParams.get("seat") ?? "host";
+    const requestedSeat = url.searchParams.get("seat") ?? undefined;
 
     if (!matchId) {
       return errorResponse("matchId query parameter is required.");
     }
 
-    if (seat !== "host" && seat !== "away") {
-      return errorResponse("seat must be 'host' or 'away'.");
+    let seat: MatchSeat;
+    try {
+      ({ seat } = await resolveMatchAndSeat(
+        ctx,
+        agent.userId,
+        matchId,
+        requestedSeat,
+      ));
+    } catch (e: any) {
+      return errorResponse(e.message, 422);
     }
 
     try {
@@ -411,16 +569,23 @@ corsRoute({
     }
 
     try {
-      const meta = await ctx.runQuery(api.game.getMatchMeta, { matchId });
+      const { meta: validatedMeta, seat } = await resolveMatchAndSeat(
+        ctx,
+        agent.userId,
+        matchId,
+      );
       const storyCtx = await ctx.runQuery(api.game.getStoryMatchContext, { matchId });
 
       return jsonResponse({
         matchId,
-        status: (meta as any)?.status,
-        mode: (meta as any)?.mode,
-        winner: (meta as any)?.winner ?? null,
-        endReason: (meta as any)?.endReason ?? null,
-        isGameOver: (meta as any)?.status === "ended",
+        status: (validatedMeta as any)?.status,
+        mode: (validatedMeta as any)?.mode,
+        winner: (validatedMeta as any)?.winner ?? null,
+        endReason: (validatedMeta as any)?.endReason ?? null,
+        isGameOver: (validatedMeta as any)?.status === "ended",
+        hostId: (validatedMeta as any)?.hostId ?? null,
+        awayId: (validatedMeta as any)?.awayId ?? null,
+        seat,
         chapterId: storyCtx?.chapterId ?? null,
         stageNumber: storyCtx?.stageNumber ?? null,
         outcome: storyCtx?.outcome ?? null,
@@ -449,11 +614,21 @@ corsRoute({
       return jsonResponse({ matchId: null, status: null });
     }
 
+    let seat: MatchSeat;
+    try {
+      ({ seat } = await resolveMatchAndSeat(ctx, agent.userId, activeMatch._id));
+    } catch (e: any) {
+      return errorResponse(e.message, 422);
+    }
+
     return jsonResponse({
       matchId: activeMatch._id,
       status: activeMatch.status,
       mode: activeMatch.mode,
       createdAt: activeMatch.createdAt,
+      hostId: (activeMatch as any).hostId,
+      awayId: (activeMatch as any).awayId,
+      seat,
     });
   },
 });

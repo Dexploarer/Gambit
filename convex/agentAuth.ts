@@ -29,15 +29,19 @@ async function resolveActiveDeckForStory(ctx: any, user: { _id: string; activeDe
     throw new Error("No active deck set. Select a starter deck first.");
   }
 
-  const preferredDeck =
-    requestedDeckId
-      ? activeDecks.find((deck: { deckId: string }) => deck.deckId === requestedDeckId)
-      : null;
+  if (!requestedDeckId) {
+    throw new Error("No active deck set. Select a starter deck first.");
+  }
 
-  const deckId = preferredDeck?.deckId ?? activeDecks[0]?.deckId;
-  if (typeof deckId !== "string" || !deckId) {
+  const preferredDeck = activeDecks.find(
+    (deck: { deckId: string }) => deck.deckId === requestedDeckId,
+  );
+
+  if (!preferredDeck) {
     throw new Error("No valid active deck found.");
   }
+
+  const deckId = preferredDeck.deckId;
   const deckData = await cards.decks.getDeckWithCards(ctx, deckId);
   if (!deckData) {
     throw new Error("Deck not found");

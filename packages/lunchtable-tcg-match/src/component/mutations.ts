@@ -17,26 +17,66 @@ const seatValidator = v.union(v.literal("host"), v.literal("away"));
 export const createMatch = mutation({
   args: {
     hostId: v.string(),
-    awayId: v.string(),
+    awayId: v.optional(v.string()),
     mode: v.union(v.literal("pvp"), v.literal("story")),
     hostDeck: v.array(v.string()),
-    awayDeck: v.array(v.string()),
+    awayDeck: v.optional(v.array(v.string())),
     isAIOpponent: v.boolean(),
   },
   returns: v.id("matches"),
   handler: async (ctx, args) => {
     const matchId = await ctx.db.insert("matches", {
       hostId: args.hostId,
-      awayId: args.awayId,
+      awayId: args.awayId ?? null,
       mode: args.mode,
       status: "waiting",
       hostDeck: args.hostDeck,
-      awayDeck: args.awayDeck,
+      awayDeck: args.awayDeck ?? null,
       isAIOpponent: args.isAIOpponent,
       createdAt: Date.now(),
     });
 
     return matchId;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// joinMatch — fill the away seat in an existing waiting match.
+//
+// The match must be in "waiting" state and currently unoccupied on the away seat.
+// ---------------------------------------------------------------------------
+
+export const joinMatch = mutation({
+  args: {
+    matchId: v.id("matches"),
+    awayId: v.string(),
+    awayDeck: v.array(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const match = await ctx.db.get(args.matchId);
+    if (!match) {
+      throw new Error(`Match ${args.matchId} not found`);
+    }
+
+    if (match.status !== "waiting") {
+      throw new Error(`Match ${args.matchId} is "${match.status}", expected "waiting"`);
+    }
+
+    if (match.awayId !== null) {
+      throw new Error(`Match ${args.matchId} already has an away player`);
+    }
+
+    if (match.hostId === args.awayId) {
+      throw new Error("Cannot join your own match as away seat.");
+    }
+
+    await ctx.db.patch(args.matchId, {
+      awayId: args.awayId,
+      awayDeck: args.awayDeck,
+    });
+
+    return null;
   },
 });
 

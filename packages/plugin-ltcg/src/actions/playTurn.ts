@@ -9,6 +9,7 @@ import { getClient } from "../client.js";
 import { playOneTurn, gameOverSummary } from "./turnLogic.js";
 import type {
   Action,
+  MatchActive,
   IAgentRuntime,
   Memory,
   State,
@@ -44,34 +45,42 @@ export const playTurnAction: Action = {
     const matchId = client.currentMatchId;
 
     if (!matchId) {
-      const text = "No active match. Use START_LTCG_BATTLE first.";
+      const text =
+        "No active match. Start one with START_DUEL (quick, alias START_LTCG_DUEL) or START_BATTLE (alias START_LTCG_BATTLE).";
       if (callback) await callback({ text });
       return { success: false, error: "No active match" };
     }
 
     try {
-      let view = await client.getView(matchId);
+      if (!client.currentSeat) {
+        try {
+          await client.syncSeatFromMatch(matchId);
+        } catch {}
+      }
+
+      const seat = (client.currentSeat ?? "host") as MatchActive["seat"];
+      let view = await client.getView(matchId, seat);
 
       if (view.gameOver) {
         client.setMatch(null);
-        const text = gameOverSummary(view);
+        const text = gameOverSummary(view, seat);
         if (callback) await callback({ text, action: "PLAY_LTCG_TURN" });
         return { success: true, data: { gameOver: true } };
       }
 
-      if (view.currentTurnPlayer !== "host") {
+      if (view.currentTurnPlayer !== seat) {
         const text = "Waiting — it's the opponent's turn.";
         if (callback) await callback({ text });
         return { success: true, data: { gameOver: false } };
       }
 
-      const actions = await playOneTurn(matchId, view);
+      const actions = await playOneTurn(matchId, view, seat);
 
       // Check game over after turn
-      view = await client.getView(matchId);
+      view = await client.getView(matchId, seat);
       if (view.gameOver) {
         client.setMatch(null);
-        actions.push(gameOverSummary(view));
+        actions.push(gameOverSummary(view, seat));
       }
 
       const summary = actions.length > 0 ? actions.join(". ") + "." : "No actions taken.";

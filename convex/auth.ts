@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
+import { components } from "./_generated/api";
+import { LTCGCards } from "@lunchtable-tcg/cards";
 
 /**
  * Extracts user identity from JWT via ctx.auth.getUserIdentity().
@@ -79,6 +81,16 @@ export const currentUser = query({
   },
 });
 
+const cards = new LTCGCards(components.lunchtable_tcg_cards as any);
+const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
+const normalizeDeckId = (deckId: string | undefined): string | null => {
+  if (!deckId) return null;
+  const trimmed = deckId.trim();
+  if (!trimmed) return null;
+  if (RESERVED_DECK_IDS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+};
+
 /**
  * Returns onboarding status for the authenticated user.
  */
@@ -93,10 +105,17 @@ export const getOnboardingStatus = query({
       .first();
     if (!user)
       return { exists: false, hasUsername: false, hasStarterDeck: false };
+
+    const userDecks = await cards.decks.getUserDecks(ctx, user._id);
+    const activeDeckId = normalizeDeckId(user.activeDeckId);
+    const hasActiveDeck = activeDeckId
+      ? userDecks?.some((deck: { deckId: string }) => deck.deckId === activeDeckId)
+      : false;
+
     return {
       exists: true,
       hasUsername: !user.username.startsWith("player_"),
-      hasStarterDeck: !!user.activeDeckId,
+      hasStarterDeck: hasActiveDeck,
     };
   },
 });
@@ -128,5 +147,3 @@ export const setUsername = mutation({
     return { success: true };
   },
 });
-
-

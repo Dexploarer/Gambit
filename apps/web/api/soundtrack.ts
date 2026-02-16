@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { blob as blobUrl } from "@/lib/blobUrls";
 
 type ParsedManifest = {
   playlists: Record<string, string[]>;
@@ -65,6 +66,65 @@ function getBaseUrl(request: VercelRequest): string {
   return `${protocol || "https"}://${host}`;
 }
 
+function isAbsoluteUrl(input: string): boolean {
+  return /^https?:\/\//i.test(input);
+}
+
+function isLunchtableTrack(input: string): boolean {
+  const normalized = input.toLowerCase();
+  return normalized.startsWith("/lunchtable/") || normalized.startsWith("lunchtable/");
+}
+
+function encodeBlobSegment(segment: string): string {
+  try {
+    return encodeURIComponent(decodeURIComponent(segment));
+  } catch {
+    return encodeURIComponent(segment);
+  }
+}
+
+function toBlobTrackUrl(input: string): string {
+  if (isAbsoluteUrl(input)) return input;
+  const normalized = input.startsWith("lunchtable/")
+    ? input
+    : input.startsWith("/")
+      ? input.slice(1)
+      : input;
+  const encodedPath = normalized
+    .replace(/^lunchtable\/+/, "")
+    .split("/")
+    .map((segment) => encodeBlobSegment(segment))
+    .join("/");
+
+  return blobUrl(encodedPath);
+}
+
+function shouldUseBlob(baseUrl: string): boolean {
+  try {
+    const { hostname } = new URL(baseUrl);
+    return hostname !== "localhost" && hostname !== "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function toClientTrackUrl(input: string, baseUrl: string, useBlobUrls: boolean): string {
+  if (!input) return "";
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+
+  if (!useBlobUrls) {
+    return withAbsoluteUrl(trimmed, baseUrl);
+  }
+
+  if (isLunchtableTrack(trimmed)) return toBlobTrackUrl(trimmed);
+  return isAbsoluteUrl(trimmed) ? trimmed : withAbsoluteUrl(trimmed, baseUrl);
+}
+
+function withTrackUrls(tracks: string[], baseUrl: string, useBlobUrls: boolean): string[] {
+  return tracks.map((track) => toClientTrackUrl(track, baseUrl, useBlobUrls));
+}
+
 function resolveContext(playlists: Record<string, string[]>, context: string) {
   const normalized = context.trim().toLowerCase();
   const keysTried = [`page:${normalized}`, normalized, "default", "app", "global"];
@@ -93,6 +153,10 @@ function setCorsHeaders(response: VercelResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader(
+    "Cache-Control",
+    "public, max-age=1200, stale-while-revalidate=3600",
+  );
 }
 
 async function readManifestFile(): Promise<string> {
@@ -129,16 +193,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const raw = await readManifestFile();
     const parsed = parseSoundtrackIn(raw);
     const baseUrl = getBaseUrl(req);
+    const useBlobUrls = shouldUseBlob(baseUrl);
 
     const playlists = Object.fromEntries(
       Object.entries(parsed.playlists).map(([key, tracks]) => [
         key,
-        tracks.map((track) => withAbsoluteUrl(track, baseUrl)),
+        withTrackUrls(tracks, baseUrl, useBlobUrls),
       ]),
     );
 
     const sfx = Object.fromEntries(
-      Object.entries(parsed.sfx).map(([key, value]) => [key, withAbsoluteUrl(value, baseUrl)]),
+      Object.entries(parsed.sfx).map(([key, value]) => [key, toClientTrackUrl(value, baseUrl, useBlobUrls)]),
     );
 
     const context =
@@ -146,7 +211,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const resolved = context ? resolveContext(playlists, context) : null;
 
     res.status(200).json({
-      source: `${baseUrl}/soundtrack.in`,
+      source: `${baseUrl}/api/soundtrack`,
       playlists,
       sfx,
       resolved,

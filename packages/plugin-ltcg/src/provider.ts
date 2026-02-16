@@ -7,8 +7,7 @@
 
 import { getClient, type LTCGClient } from "./client.js";
 import type {
-  BoardCard,
-  CardInHand,
+  MatchActive,
   IAgentRuntime,
   Memory,
   PlayerView,
@@ -36,18 +35,20 @@ export const gameStateProvider: Provider = {
     const matchId = client.currentMatchId;
     if (!matchId) {
       return {
-        text: "No active LunchTable match. Use START_LTCG_BATTLE to begin a story battle.",
+        text: "No active LunchTable match. Use START_DUEL (alias for START_LTCG_DUEL) or START_BATTLE (alias for START_LTCG_BATTLE) to begin.",
       };
     }
 
     try {
-      const view = await client.getView(matchId);
+      const seat: NonNullable<MatchActive["seat"]> = client.currentSeat ?? "host";
+      const view = await client.getView(matchId, seat);
       return {
-        text: formatView(view, matchId),
+        text: formatView(view, matchId, seat),
         values: {
           ltcgMatchId: matchId,
           ltcgPhase: view.phase,
-          ltcgIsMyTurn: String(view.currentTurnPlayer === "host"),
+          ltcgIsMyTurn: String(view.currentTurnPlayer === seat),
+          ltcgSeat: seat,
         },
       };
     } catch (err) {
@@ -61,78 +62,151 @@ export const gameStateProvider: Provider = {
 
 // ── Formatting ───────────────────────────────────────────────────
 
-function formatView(v: PlayerView, matchId: string): string {
+function formatView(
+  v: PlayerView,
+  matchId: string,
+  seat: MatchActive["seat"],
+): string {
+  const activeSeat = resolveSeat(seat);
+
+  const { myLP, oppLP } = resolveLifePoints(v, activeSeat);
   if (v.gameOver) {
-    const myLP = v.players.host.lifePoints;
-    const oppLP = v.players.away.lifePoints;
     const outcome =
       myLP > oppLP ? "VICTORY!" : myLP < oppLP ? "DEFEAT." : "DRAW.";
     return `=== LTCG MATCH ${matchId} — GAME OVER ===\nFinal LP: You ${myLP} — Opponent ${oppLP}\n${outcome}`;
   }
 
-  const isMyTurn = v.currentTurnPlayer === "host";
+  const isMyTurn = v.currentTurnPlayer === activeSeat;
+  const myBoard = getBoard(v, "self");
+  const oppBoard = getBoard(v, "opponent");
+  const mySpells = getSpellTrap(v, "self");
+  const oppSpells = getSpellTrap(v, "opponent");
+
   const lines: string[] = [
     `=== LTCG MATCH ${matchId} ===`,
     `Phase: ${v.phase} | ${isMyTurn ? "YOUR TURN" : "OPPONENT'S TURN"}`,
-    `LP: You ${v.players.host.lifePoints} | Opponent ${v.players.away.lifePoints}`,
+    `LP: You ${myLP} | Opponent ${oppLP}`,
     "",
   ];
 
-  // Hand — grouped by card type
   const hand = v.hand ?? [];
-  const monsters = hand.filter((c) => c.cardType === "stereotype");
-  const spells = hand.filter((c) => c.cardType === "spell");
-  const traps = hand.filter((c) => c.cardType === "trap");
 
   lines.push(`Your hand (${hand.length}):`);
   if (hand.length === 0) {
     lines.push("  (empty)");
   } else {
-    for (const c of monsters) lines.push(`  ${formatHandCard(c)}`);
-    for (const c of spells) lines.push(`  ${formatHandCard(c)}`);
-    for (const c of traps) lines.push(`  ${formatHandCard(c)}`);
+    for (const cardId of hand) {
+      lines.push(`  cardId:${cardId}`);
+    }
   }
 
   // Player field
   lines.push("");
-  const myMonsters = (v.playerField?.monsters ?? []).filter(
-    Boolean,
-  ) as BoardCard[];
-  lines.push(`Your field (${myMonsters.length} monsters):`);
-  if (myMonsters.length === 0) {
+  lines.push(`Your monsters (${myBoard.length}):`);
+  if (myBoard.length === 0) {
     lines.push("  (empty)");
   } else {
-    for (const m of myMonsters) {
+    for (const m of myBoard) {
       lines.push(
-        `  ${m.name} ATK:${m.attack} DEF:${m.defense} pos:${m.position ?? "atk"} id:${m.instanceId}`,
+        `  ${formatCard(m)} atk:${m.attack ?? "?"} def:${m.defense ?? "?"} pos:${m.position ?? "atk"}`,
       );
+    }
+  }
+
+  lines.push(`Your back row (${mySpells.length}):`);
+  if (mySpells.length === 0) {
+    lines.push("  (empty)");
+  } else {
+    for (const c of mySpells) {
+      lines.push(`  ${formatCard(c)} ${c.faceDown ? "facedown" : "faceup"}`);
     }
   }
 
   // Opponent field
   lines.push("");
-  const oppMonsters = (v.opponentField?.monsters ?? []).filter(
-    Boolean,
-  ) as BoardCard[];
-  lines.push(`Opponent field (${oppMonsters.length} monsters):`);
-  if (oppMonsters.length === 0) {
+  lines.push(`Opponent monsters (${oppBoard.length}):`);
+  if (oppBoard.length === 0) {
     lines.push("  (empty)");
   } else {
-    for (const m of oppMonsters) {
+    for (const m of oppBoard) {
       if (m.faceDown) {
         lines.push("  [Face-down monster]");
       } else {
-        lines.push(`  ${m.name} ATK:${m.attack} DEF:${m.defense}`);
+        lines.push(
+          `  ${formatCard(m)} atk:${m.attack ?? "?"} def:${m.defense ?? "?"}`,
+        );
       }
+    }
+  }
+
+  lines.push(`Opponent back row (${oppSpells.length}):`);
+  if (oppSpells.length === 0) {
+    lines.push("  (empty)");
+  } else {
+    for (const c of oppSpells) {
+      lines.push(`  ${formatCard(c)} ${c.faceDown ? "facedown" : "faceup"}`);
     }
   }
 
   return lines.join("\n");
 }
 
-function formatHandCard(c: CardInHand): string {
-  if (c.cardType === "stereotype") {
-    return `${c.name} (ATK:${c.attack ?? "?"} DEF:${c.defense ?? "?"} Lv:${c.level ?? "?"} id:${c.instanceId})`;
+function resolveSeat(seat: MatchActive["seat"]): "host" | "away" {
+  return seat === "away" ? "away" : "host";
+}
+
+function resolveLifePoints(view: PlayerView, seat: "host" | "away") {
+  if (view.lifePoints !== undefined || view.opponentLifePoints !== undefined) {
+    return seat === "host"
+      ? {
+          myLP: view.lifePoints ?? view.opponentLifePoints ?? 0,
+          oppLP: view.opponentLifePoints ?? view.lifePoints ?? 0,
+        }
+      : {
+          myLP: view.opponentLifePoints ?? view.lifePoints ?? 0,
+          oppLP: view.lifePoints ?? view.opponentLifePoints ?? 0,
+        };
   }
-  return `${c.name} [${c.cardType}] (id:${c.instanceId})`;
+
+  const host = view.players?.host?.lifePoints ?? 0;
+  const away = view.players?.away?.lifePoints ?? 0;
+  return seat === "host" ? { myLP: host, oppLP: away } : { myLP: away, oppLP: host };
+}
+
+function formatCard(card: { cardId?: string; definitionId?: string; instanceId?: string; name?: string }) {
+  return card.name ?? card.definitionId ?? card.cardId ?? card.instanceId ?? "unknown card";
+}
+
+function getBoard(v: PlayerView, seat: "self" | "opponent") {
+  if (seat === "self") {
+    return (
+      (v.playerField?.monsters ?? v.board ?? []).filter(Boolean) as Array<Record<
+        string,
+        unknown
+      > & { cardId?: string; definitionId?: string; instanceId?: string; attack?: number; defense?: number; position?: string; faceDown?: boolean }>
+    );
+  }
+  return (
+    (v.opponentField?.monsters ?? v.opponentBoard ?? []).filter(Boolean) as Array<Record<
+      string,
+      unknown
+    > & { cardId?: string; definitionId?: string; instanceId?: string; attack?: number; defense?: number; position?: string; faceDown?: boolean }>
+  );
+}
+
+function getSpellTrap(v: PlayerView, seat: "self" | "opponent") {
+  if (seat === "self") {
+    return (
+      (v.spellTrapZone ?? v.playerField?.spellTraps ?? []).filter(Boolean) as Array<Record<
+        string,
+        unknown
+      > & { cardId?: string; definitionId?: string; instanceId?: string; faceDown?: boolean }>
+    );
+  }
+  return (
+    (v.opponentSpellTrapZone ?? v.opponentField?.spellTraps ?? []).filter(Boolean) as Array<Record<
+      string,
+      unknown
+    > & { cardId?: string; definitionId?: string; instanceId?: string; faceDown?: boolean }>
+  );
 }

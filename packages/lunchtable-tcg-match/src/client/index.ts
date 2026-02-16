@@ -44,14 +44,29 @@ export class LTCGMatch {
     ctx: RunMutationCtx,
     args: {
       hostId: string;
-      awayId: string;
+      awayId?: string;
       mode: "pvp" | "story";
       hostDeck: string[];
-      awayDeck: string[];
+      awayDeck?: string[];
       isAIOpponent: boolean;
     }
   ) {
     return await ctx.runMutation(this.component.mutations.createMatch, args);
+  }
+
+  async joinMatch(
+    ctx: RunMutationCtx,
+    args: {
+      matchId: string;
+      awayId: string;
+      awayDeck: string[];
+    }
+  ) {
+    return await ctx.runMutation(this.component.mutations.joinMatch, {
+      matchId: args.matchId as any,
+      awayId: args.awayId,
+      awayDeck: args.awayDeck,
+    });
   }
 
   async startMatch(
@@ -128,6 +143,15 @@ export class LTCGMatch {
     args: { hostId: string }
   ) {
     return await ctx.runQuery(this.component.queries.getActiveMatchByHost, {
+      hostId: args.hostId,
+    });
+  }
+
+  async getOpenLobbyByHost(
+    ctx: RunQueryCtx,
+    args: { hostId: string }
+  ) {
+    return await ctx.runQuery(this.component.queries.getOpenLobbyByHost, {
       hostId: args.hostId,
     });
   }

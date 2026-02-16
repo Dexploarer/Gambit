@@ -29,18 +29,21 @@ async function resolveActiveDeckIdForUser(
 ) {
   const activeDecks = await cards.decks.getUserDecks(ctx, user._id);
   const requestedDeckId = normalizeDeckId(user.activeDeckId);
-  const preferredDeck =
-    requestedDeckId && activeDecks
-      ? activeDecks.find((deck: { deckId: string }) => deck.deckId === requestedDeckId)
-      : null;
-
-  const fallbackDeckId = (preferredDeck || activeDecks?.[0])?.deckId;
-  if (!fallbackDeckId) return null;
-
-  if (user.activeDeckId !== fallbackDeckId) {
-    await ctx.db.patch(user._id, { activeDeckId: fallbackDeckId });
+  if (!requestedDeckId) {
+    throw new Error("No active deck set");
   }
-  return fallbackDeckId;
+
+  const preferredDeck = activeDecks
+    ? activeDecks.find((deck: { deckId: string }) => deck.deckId === requestedDeckId)
+    : null;
+  if (!preferredDeck) {
+    throw new Error("Active deck not found");
+  }
+
+  if (user.activeDeckId !== preferredDeck.deckId) {
+    await ctx.db.patch(user._id, { activeDeckId: preferredDeck.deckId });
+  }
+  return preferredDeck.deckId;
 }
 
 async function resolveActiveDeckForStory(ctx: any, user: { _id: string; activeDeckId?: string }) {

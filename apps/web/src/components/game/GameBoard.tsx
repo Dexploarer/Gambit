@@ -19,9 +19,15 @@ import type { Phase } from "@lunchtable-tcg/engine";
 interface GameBoardProps {
   matchId: string;
   seat: Seat;
+  onMatchEnd?: (result: {
+    result: "win" | "loss" | "draw";
+    winner?: string | null;
+    playerLP: number;
+    opponentLP: number;
+  }) => void;
 }
 
-export function GameBoard({ matchId, seat }: GameBoardProps) {
+export function GameBoard({ matchId, seat, onMatchEnd }: GameBoardProps) {
   const navigate = useNavigate();
   const { playSfx } = useAudio();
   const {
@@ -38,10 +44,28 @@ export function GameBoard({ matchId, seat }: GameBoardProps) {
   } = useGameState(matchId, seat);
   const actions = useGameActions(matchId, seat);
   const endSfxPlayedRef = useRef(false);
+  const matchEndNotifiedRef = useRef(false);
+  const pendingMatchEndRef = useRef(onMatchEnd);
 
   const isChainPromptOpen = Boolean(openPrompt);
   const chainData = (openPrompt?.data ?? {}) as Record<string, unknown>;
   const playerSeat = view?.mySeat;
+  const playerLP = view?.lifePoints ?? 0;
+  const opponentLP = view?.opponentLifePoints ?? 0;
+  const winner = view?.winner ?? meta?.winner;
+  const ended = gameOver || meta?.status === "ended";
+  const result: "win" | "loss" | "draw" =
+    winner && playerSeat
+      ? winner === playerSeat
+        ? "win"
+        : "loss"
+      : playerLP > opponentLP
+        ? "win"
+        : playerLP < opponentLP
+          ? "loss"
+          : "draw";
+
+  pendingMatchEndRef.current = onMatchEnd;
 
   const chainOpponentCardName = (() => {
     const directName = chainData.opponentCardName;
@@ -309,10 +333,6 @@ export function GameBoard({ matchId, seat }: GameBoardProps) {
   }
 
   // Game over overlay
-  const playerLP = view.lifePoints ?? 0;
-  const opponentLP = view.opponentLifePoints ?? 0;
-  const winner = view.winner ?? meta?.winner;
-  const ended = gameOver || meta?.status === "ended";
 
   useEffect(() => {
     if (!ended) {
@@ -331,16 +351,26 @@ export function GameBoard({ matchId, seat }: GameBoardProps) {
     endSfxPlayedRef.current = true;
   }, [ended, winner, playerSeat, playSfx]);
 
+  useEffect(() => {
+    if (!ended || !playerSeat || !pendingMatchEndRef.current) return;
+    if (matchEndNotifiedRef.current) return;
+
+    matchEndNotifiedRef.current = true;
+    pendingMatchEndRef.current({
+      result,
+      winner,
+      playerLP,
+      opponentLP,
+    });
+  }, [ended, playerSeat, result, winner, playerLP, opponentLP]);
+
   if (ended) {
-    const result = winner && playerSeat
-      ? winner === playerSeat
-        ? "win"
-        : "loss"
-      : playerLP > opponentLP
-        ? "win"
-        : playerLP < opponentLP
-          ? "loss"
-          : "draw";
+    if (onMatchEnd) {
+      return <div className="h-screen flex items-center justify-center bg-[#fdfdfb]">
+        <div className="w-8 h-8 border-4 border-[#121212] border-t-transparent rounded-full animate-spin" />
+      </div>;
+    }
+
     return (
       <AnimatePresence>
         <GameOverOverlay
