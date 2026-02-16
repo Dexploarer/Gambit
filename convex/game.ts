@@ -23,38 +23,105 @@ const normalizeDeckId = (deckId: string | undefined): string | null => {
   return trimmed;
 };
 
+const normalizeDeckRecordId = (deckRecord: { deckId?: string }) =>
+  normalizeDeckId(deckRecord?.deckId);
+
+const resolveDefaultStarterDeckCode = () => {
+  const configured = STARTER_DECKS.find((deck) => DECK_RECIPES[deck.deckCode]);
+  if (configured?.deckCode) return configured.deckCode;
+  const keys = Object.keys(DECK_RECIPES);
+  return keys[0] ?? null;
+};
+
+const createStarterDeckFromRecipe = async (ctx: any, userId: string) => {
+  const deckCode = resolveDefaultStarterDeckCode();
+  if (!deckCode) return null;
+
+  const recipe = DECK_RECIPES[deckCode];
+  if (!recipe) return null;
+
+  const allCards = await cards.cards.getAllCards(ctx);
+  const byName = new Map<string, any>();
+  for (const c of allCards ?? []) {
+    byName.set(c.name, c);
+  }
+
+  const resolvedCards: { cardDefinitionId: string; quantity: number }[] = [];
+  for (const entry of recipe) {
+    const cardDef = byName.get(entry.cardName);
+    if (!cardDef) return null;
+    resolvedCards.push({ cardDefinitionId: cardDef._id, quantity: entry.copies });
+  }
+
+  for (const rc of resolvedCards) {
+    await cards.cards.addCardsToInventory({
+      userId,
+      cardDefinitionId: rc.cardDefinitionId,
+      quantity: rc.quantity,
+      source: "starter_deck",
+    });
+  }
+
+  const deckName =
+    STARTER_DECKS.find((deck) => deck.deckCode === deckCode)?.name ?? deckCode;
+  const deckId = await cards.decks.createDeck(ctx, userId, deckName, {
+    deckArchetype: deckCode.replace("_starter", ""),
+  });
+  await cards.decks.saveDeck(ctx, deckId, resolvedCards);
+  await cards.decks.setActiveDeck(ctx, userId, deckId);
+  await ctx.db.patch(userId, { activeDeckId: deckId });
+  return deckId;
+};
+
 async function resolveActiveDeckIdForUser(
   ctx: any,
   user: { _id: string; activeDeckId?: string },
 ) {
   const activeDecks = await cards.decks.getUserDecks(ctx, user._id);
   const requestedDeckId = normalizeDeckId(user.activeDeckId);
-  if (!requestedDeckId) {
-    throw new Error("No active deck set");
-  }
-
-  const preferredDeck = activeDecks
-    ? activeDecks.find((deck: { deckId: string }) => deck.deckId === requestedDeckId)
+  const preferredDeckId = requestedDeckId
+    ? normalizeDeckRecordId(
+        activeDecks
+          ? activeDecks.find((deck: { deckId: string }) => deck.deckId === requestedDeckId)
+          : null,
+      )
     : null;
-  if (!preferredDeck) {
-    throw new Error("Active deck not found");
+
+  const firstDeckId = activeDecks?.map(normalizeDeckRecordId).find((id) => Boolean(id)) ?? null;
+
+  const fallbackDeckId = preferredDeckId ?? firstDeckId;
+  if (!fallbackDeckId) {
+    return createStarterDeckFromRecipe(ctx, user._id);
   }
 
-  if (user.activeDeckId !== preferredDeck.deckId) {
-    await ctx.db.patch(user._id, { activeDeckId: preferredDeck.deckId });
+  if (user.activeDeckId !== fallbackDeckId) {
+    await ctx.db.patch(user._id, { activeDeckId: fallbackDeckId });
   }
-  return preferredDeck.deckId;
+  return fallbackDeckId;
 }
 
-async function resolveActiveDeckForStory(ctx: any, user: { _id: string; activeDeckId?: string }) {
+export async function resolveActiveDeckForStory(
+  ctx: any,
+  user: { _id: string; activeDeckId?: string },
+) {
   const deckId = await resolveActiveDeckIdForUser(ctx, user);
-  if (!deckId) {
-    throw new Error("No active deck set");
-  }
+  if (!deckId) throw new Error("No active deck set");
 
   const deckData = await cards.decks.getDeckWithCards(ctx, deckId);
   if (!deckData) {
-    throw new Error("Deck not found");
+    await cards.decks.setActiveDeck(ctx, user._id, deckId);
+    const fallbackDeckId = await resolveActiveDeckIdForUser(ctx, {
+      ...user,
+      activeDeckId: undefined,
+    });
+    if (!fallbackDeckId) {
+      throw new Error("Active deck not found");
+    }
+    const fallbackDeckData = await cards.decks.getDeckWithCards(ctx, fallbackDeckId);
+    if (!fallbackDeckData) {
+      throw new Error("Deck not found");
+    }
+    return { deckId: fallbackDeckId, deckData: fallbackDeckData };
   }
 
   return { deckId, deckData };

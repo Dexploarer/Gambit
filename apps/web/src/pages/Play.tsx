@@ -89,27 +89,7 @@ export function Play() {
     "skip",
   ) as CurrentUser | null | undefined;
 
-<<<<<<< HEAD
-  const completeStage = useConvexMutation(apiAny.game.completeStoryStage);
-
-  const [completion, setCompletion] = useState<StoryCompletion | null>(null);
-  const completingRef = useRef(false);
-
   const playerSeat = resolvePlayerSeat(currentUser ?? null, meta, isStory);
-=======
-  const playerSeat =
-    currentUser && meta
-      ? currentUser._id === meta.hostId
-        ? "host"
-        : currentUser._id === meta.awayId
-            ? "away"
-            : isStory && meta.isAIOpponent && meta.awayId === "cpu"
-              ? "host"
-            : isStory && meta.isAIOpponent && meta.hostId === "cpu"
-              ? "away"
-              : null
-      : null;
->>>>>>> e2462d7 (feat(web): wire story match completion through gameboard callback)
 
   // Loading
   if (!activeMatchId) return <CenterMessage>Invalid match ID.</CenterMessage>;

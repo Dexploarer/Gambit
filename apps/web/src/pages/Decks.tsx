@@ -6,6 +6,7 @@ import { apiAny, useConvexQuery, useConvexMutation } from "@/lib/convexHelpers";
 
 type Deck = {
   _id: string;
+  deckId: string;
   name: string;
   deckArchetype?: string;
   cards?: { cardDefinitionId: string; quantity: number }[];
@@ -151,7 +152,7 @@ export function Decks() {
         ) : (
           <div className="flex flex-col gap-4">
             {userDecks.map((deck) => {
-              const isActive = currentUser?.activeDeckId === deck._id;
+              const isActive = currentUser?.activeDeckId === deck.deckId;
               const color = ARCHETYPE_COLORS[deck.deckArchetype ?? ""] ?? "#121212";
               const cardCount = (deck.cards ?? []).reduce(
                 (sum, c) => sum + c.quantity,
@@ -197,7 +198,7 @@ export function Decks() {
                     <div className="flex items-center gap-2 shrink-0 w-full md:w-auto mt-2 md:mt-0">
                       <button
                         type="button"
-                        onClick={() => navigate(`/decks/${deck._id}`)}
+                        onClick={() => navigate(`/decks/${deck.deckId}`)}
                         className="tcg-button px-4 py-2 text-xs"
                       >
                         Edit
@@ -205,11 +206,11 @@ export function Decks() {
                       {!isActive && (
                         <button
                           type="button"
-                          onClick={() => handleSetActive(deck._id)}
-                          disabled={settingActive === deck._id}
+                          onClick={() => handleSetActive(deck.deckId)}
+                          disabled={settingActive === deck.deckId}
                           className="tcg-button px-4 py-2 text-xs disabled:opacity-50"
                         >
-                          {settingActive === deck._id ? "Setting..." : "Set Active"}
+                          {settingActive === deck.deckId ? "Setting..." : "Set Active"}
                         </button>
                       )}
                     </div>

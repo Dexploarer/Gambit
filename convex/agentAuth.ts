@@ -6,53 +6,16 @@ import { LTCGMatch } from "@lunchtable-tcg/match";
 import { LTCGStory } from "@lunchtable-tcg/story";
 import { createInitialState, DEFAULT_CONFIG, buildCardLookup } from "@lunchtable-tcg/engine";
 import { DECK_RECIPES } from "./cardData";
-import { buildAIDeck, findStageByNumber, getDeckCardIdsFromDeckData } from "./game";
+import {
+  buildAIDeck,
+  findStageByNumber,
+  getDeckCardIdsFromDeckData,
+  resolveActiveDeckForStory,
+} from "./game";
 
 const cards = new LTCGCards(components.lunchtable_tcg_cards as any);
 const match = new LTCGMatch(components.lunchtable_tcg_match as any);
 const story = new LTCGStory(components.lunchtable_tcg_story as any);
-
-const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
-const normalizeDeckId = (deckId: string | undefined): string | null => {
-  if (!deckId) return null;
-  const trimmed = deckId.trim();
-  if (!trimmed) return null;
-  if (RESERVED_DECK_IDS.has(trimmed.toLowerCase())) return null;
-  return trimmed;
-};
-
-async function resolveActiveDeckForStory(ctx: any, user: { _id: string; activeDeckId?: string }) {
-  const requestedDeckId = normalizeDeckId(user.activeDeckId);
-
-  const activeDecks = await cards.decks.getUserDecks(ctx, user._id);
-  if (!activeDecks || activeDecks.length === 0) {
-    throw new Error("No active deck set. Select a starter deck first.");
-  }
-
-  if (!requestedDeckId) {
-    throw new Error("No active deck set. Select a starter deck first.");
-  }
-
-  const preferredDeck = activeDecks.find(
-    (deck: { deckId: string }) => deck.deckId === requestedDeckId,
-  );
-
-  if (!preferredDeck) {
-    throw new Error("No valid active deck found.");
-  }
-
-  const deckId = preferredDeck.deckId;
-  const deckData = await cards.decks.getDeckWithCards(ctx, deckId);
-  if (!deckData) {
-    throw new Error("Deck not found");
-  }
-
-  if (deckId !== user.activeDeckId) {
-    await ctx.db.patch(user._id, { activeDeckId: deckId });
-  }
-
-  return { deckId, deckData };
-}
 
 // ── Agent Queries ─────────────────────────────────────────────────
 

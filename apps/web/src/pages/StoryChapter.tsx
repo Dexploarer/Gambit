@@ -15,6 +15,20 @@ import { TrayNav } from "@/components/layout/TrayNav";
 import { STAGES_BG, QUESTIONS_LABEL } from "@/lib/blobUrls";
 import { normalizeMatchId } from "@/lib/matchIds";
 
+type StarterDeck = {
+  deckCode: string;
+  name?: string;
+};
+
+const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
+const normalizeDeckId = (deckId: string | undefined): string | null => {
+  if (!deckId) return null;
+  const trimmed = deckId.trim();
+  if (!trimmed) return null;
+  if (RESERVED_DECK_IDS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+};
+
 export function StoryChapter() {
   return (
     <StoryProvider>
@@ -30,15 +44,49 @@ function StoryChapterInner() {
   const { chapterId } = useParams<{ chapterId: string }>();
   const navigate = useNavigate();
   const { pushEvents } = useStory();
+  const currentUser = useConvexQuery(
+    apiAny.auth.currentUser,
+    chapterId ? {} : "skip",
+  ) as { activeDeckId?: string } | null | undefined;
 
   const stages = useConvexQuery(
     apiAny.game.getChapterStages,
     chapterId ? { chapterId } : "skip",
   ) as Stage[] | undefined;
+  const userDecks = useConvexQuery(
+    apiAny.game.getUserDecks,
+    chapterId ? {} : "skip",
+  ) as { deckId: string }[] | undefined;
+  const starterDecks = useConvexQuery(
+    apiAny.game.getStarterDecks,
+    chapterId ? {} : "skip",
+  ) as StarterDeck[] | undefined;
 
   const startBattle = useConvexMutation(apiAny.game.startStoryBattle);
+  const selectStarterDeck = useConvexMutation(apiAny.game.selectStarterDeck);
+  const setActiveDeck = useConvexMutation(apiAny.game.setActiveDeck);
   const [starting, setStarting] = useState<number | null>(null);
   const [error, setError] = useState("");
+
+  const ensureActiveDeck = async () => {
+    const activeDeckId = normalizeDeckId(currentUser?.activeDeckId);
+    const hasActiveDeck = Boolean(
+      activeDeckId && userDecks?.some((deck) => normalizeDeckId(deck.deckId) === activeDeckId),
+    );
+    if (hasActiveDeck) return;
+
+    const firstDeckId = normalizeDeckId(userDecks?.[0]?.deckId);
+    if (firstDeckId) {
+      await setActiveDeck({ deckId: firstDeckId });
+      return;
+    }
+
+    const defaultDeck = starterDecks?.[0]?.deckCode;
+    if (!defaultDeck) {
+      throw new Error("No starter deck is configured.");
+    }
+    await selectStarterDeck({ deckCode: defaultDeck });
+  };
 
   const sorted = [...(stages ?? [])].sort((a, b) => a.stageNumber - b.stageNumber);
 
@@ -48,6 +96,7 @@ function StoryChapterInner() {
     setError("");
 
     try {
+      await ensureActiveDeck();
       // Play pre-match dialogue if available
       if (stage.preMatchDialogue && stage.preMatchDialogue.length > 0) {
         pushEvents([{ type: "dialogue", lines: stage.preMatchDialogue }]);

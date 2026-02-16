@@ -244,6 +244,14 @@ export function GameBoard({ matchId, seat, onMatchEnd }: GameBoardProps) {
     setShowActionSheet(false);
   }, [isChainPromptOpen, selectedHandCard, actions]);
 
+  const handleActionSheetActivateTrap = useCallback(() => {
+    if (isChainPromptOpen) return;
+    if (!selectedHandCard) return;
+    actions.activateTrap(selectedHandCard);
+    setSelectedHandCard(null);
+    setShowActionSheet(false);
+  }, [isChainPromptOpen, selectedHandCard, actions]);
+
   const handleActionSheetClose = useCallback(() => {
     setSelectedHandCard(null);
     setShowActionSheet(false);
@@ -605,6 +613,7 @@ export function GameBoard({ matchId, seat, onMatchEnd }: GameBoardProps) {
           onSetMonster={handleActionSheetSetMonster}
           onSetSpellTrap={handleActionSheetSetSpellTrap}
           onActivateSpell={handleActionSheetActivateSpell}
+          onActivateTrap={handleActionSheetActivateTrap}
           onTributeRequired={() => {
             setPendingSummonPosition("attack");
             setShowActionSheet(false);
