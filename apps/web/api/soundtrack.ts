@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { blob as blobUrl } from "@/lib/blobUrls";
+import { blob as blobUrl } from "../src/lib/blobUrls";
 
 type ParsedManifest = {
   playlists: Record<string, string[]>;
