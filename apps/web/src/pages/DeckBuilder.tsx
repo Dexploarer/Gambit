@@ -31,8 +31,18 @@ const ARCHETYPE_COLORS: Record<string, string> = {
   goodies: "#a0aec0",
 };
 
+const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
+const normalizeDeckId = (deckId: string | undefined): string | null => {
+  if (!deckId) return null;
+  const trimmed = deckId.trim();
+  if (!trimmed) return null;
+  if (RESERVED_DECK_IDS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+};
+
 export function DeckBuilder() {
-  const { deckId } = useParams<{ deckId: string }>();
+  const { deckId: rawDeckId } = useParams<{ deckId: string }>();
+  const deckId = normalizeDeckId(rawDeckId);
   const navigate = useNavigate();
   const { isAuthenticated } = useConvexAuth();
 
@@ -149,8 +159,21 @@ export function DeckBuilder() {
     }
   };
 
-  // Loading
-  if (!deckId) return null;
+  // Loading / invalid id handling
+  if (!deckId) {
+    return (
+      <div className="min-h-screen flex flex-col gap-3 items-center justify-center bg-[#fdfdfb]">
+        <p className="text-[#666] font-bold uppercase text-sm">Invalid deck id.</p>
+        <button
+          type="button"
+          onClick={() => navigate("/decks")}
+          className="tcg-button px-4 py-2 text-xs"
+        >
+          Back to Decks
+        </button>
+      </div>
+    );
+  }
   if (deckData === undefined || allCards === undefined || userCards === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fdfdfb]">

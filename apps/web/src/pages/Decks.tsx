@@ -20,6 +20,15 @@ const ARCHETYPE_COLORS: Record<string, string> = {
   goodies: "#a0aec0",
 };
 
+const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
+const normalizeDeckId = (deckId: string | undefined): string | null => {
+  if (!deckId) return null;
+  const trimmed = deckId.trim();
+  if (!trimmed) return null;
+  if (RESERVED_DECK_IDS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+};
+
 export function Decks() {
   const navigate = useNavigate();
   const { isAuthenticated } = useConvexAuth();
@@ -37,6 +46,7 @@ export function Decks() {
   const createDeck = useConvexMutation(apiAny.game.createDeck);
   const [settingActive, setSettingActive] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creationError, setCreationError] = useState("");
 
   const handleSetActive = async (deckId: string) => {
     setSettingActive(deckId);
@@ -51,11 +61,21 @@ export function Decks() {
 
   const handleCreateDeck = async () => {
     setCreating(true);
+    setCreationError("");
     try {
       const result = await createDeck({ name: `Deck ${(userDecks?.length ?? 0) + 1}` });
-      if (result?.deckId) navigate(`/decks/${result.deckId}`);
+      const createdDeckId = normalizeDeckId(
+        typeof result === "string" ? result : result?.deckId,
+      );
+      if (!createdDeckId) {
+        throw new Error("Deck creation did not return a valid deck id.");
+      }
+      navigate(`/decks/${createdDeckId}`);
     } catch (err) {
       Sentry.captureException(err);
+      const message =
+        err instanceof Error ? err.message : "Failed to create deck.";
+      setCreationError(message);
     } finally {
       setCreating(false);
     }
@@ -88,6 +108,12 @@ export function Decks() {
           {creating ? "Creating..." : "+ New Deck"}
         </button>
       </header>
+
+      {creationError ? (
+        <div className="max-w-3xl mx-auto px-6 pt-4">
+          <p className="text-red-600 text-sm font-bold uppercase">{creationError}</p>
+        </div>
+      ) : null}
 
       {/* Deck list */}
       <div className="p-6 max-w-3xl mx-auto">

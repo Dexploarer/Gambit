@@ -6,10 +6,20 @@ import { LTCGMatch } from "@lunchtable-tcg/match";
 import { LTCGStory } from "@lunchtable-tcg/story";
 import { createInitialState, DEFAULT_CONFIG, buildCardLookup } from "@lunchtable-tcg/engine";
 import { DECK_RECIPES } from "./cardData";
+import { buildAIDeck } from "./game";
 
 const cards = new LTCGCards(components.lunchtable_tcg_cards as any);
 const match = new LTCGMatch(components.lunchtable_tcg_match as any);
 const story = new LTCGStory(components.lunchtable_tcg_story as any);
+
+const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
+const normalizeDeckId = (deckId: string | undefined): string | null => {
+  if (!deckId) return null;
+  const trimmed = deckId.trim();
+  if (!trimmed) return null;
+  if (RESERVED_DECK_IDS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+};
 
 // ── Agent Queries ─────────────────────────────────────────────────
 
@@ -72,8 +82,9 @@ export const agentStartBattle = mutation({
     );
     if (!stage) throw new Error(`Stage ${stageNum} not found in chapter`);
 
-    if (!user.activeDeckId) throw new Error("No active deck set. Select a starter deck first.");
-    const deckData = await cards.decks.getDeckWithCards(ctx, user.activeDeckId);
+    const deckId = normalizeDeckId(user.activeDeckId);
+    if (!deckId) throw new Error("No active deck set. Select a starter deck first.");
+    const deckData = await cards.decks.getDeckWithCards(ctx, deckId);
     if (!deckData) throw new Error("Deck not found");
 
     const playerDeck: string[] = [];
@@ -145,6 +156,59 @@ export const agentStartBattle = mutation({
     });
 
     return { matchId, chapterId: args.chapterId, stageNumber: stageNum };
+  },
+});
+
+export const agentStartDuel = mutation({
+  args: {
+    agentUserId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.agentUserId);
+    if (!user) throw new Error("Agent user not found");
+    const deckId = normalizeDeckId(user.activeDeckId);
+    if (!deckId) throw new Error("No active deck set. Select a starter deck first.");
+
+    const deckData = await cards.decks.getDeckWithCards(ctx, deckId);
+    if (!deckData) throw new Error("Deck not found");
+
+    const playerDeck: string[] = [];
+    for (const card of (deckData as any).cards ?? []) {
+      for (let i = 0; i < (card.quantity ?? 1); i++) {
+        playerDeck.push(card.cardDefinitionId);
+      }
+    }
+    if (playerDeck.length < 30) throw new Error("Deck must have at least 30 cards");
+
+    const allCards = await cards.cards.getAllCards(ctx);
+    const aiDeck = buildAIDeck(allCards);
+    const cardLookup = buildCardLookup(allCards as any);
+
+    const initialState = createInitialState(
+      cardLookup,
+      DEFAULT_CONFIG,
+      user._id,
+      "cpu",
+      playerDeck,
+      aiDeck,
+      "host",
+    );
+
+    const matchId = await match.createMatch(ctx, {
+      hostId: user._id,
+      awayId: "cpu",
+      mode: "pvp",
+      hostDeck: playerDeck,
+      awayDeck: aiDeck,
+      isAIOpponent: true,
+    });
+
+    await match.startMatch(ctx, {
+      matchId,
+      initialState: JSON.stringify(initialState),
+    });
+
+    return { matchId };
   },
 });
 
