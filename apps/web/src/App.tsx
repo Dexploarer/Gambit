@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router";
+import { lazy, Suspense } from "react";
 import * as Sentry from "@sentry/react";
 import { Toaster } from "sonner";
 import { useIframeMode } from "@/hooks/useIframeMode";
@@ -6,20 +7,21 @@ import { useTelegramAuth } from "@/hooks/auth/useTelegramAuth";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { AgentSpectatorView } from "@/components/game/AgentSpectatorView";
 import { Home } from "@/pages/Home";
-import { Onboarding } from "@/pages/Onboarding";
-import { Collection } from "@/pages/Collection";
-import { Story } from "@/pages/Story";
-import { StoryChapter } from "@/pages/StoryChapter";
-import { Decks } from "@/pages/Decks";
-import { Play } from "@/pages/Play";
-import { Privacy } from "@/pages/Privacy";
-import { Terms } from "@/pages/Terms";
-import { About } from "@/pages/About";
-import { Token } from "@/pages/Token";
-import { AgentDev } from "@/pages/AgentDev";
-import { Leaderboard } from "@/pages/Leaderboard";
-import { Watch } from "@/pages/Watch";
-import { DeckBuilder } from "@/pages/DeckBuilder";
+
+const Onboarding = lazy(() => import("@/pages/Onboarding").then(m => ({ default: m.Onboarding })));
+const Collection = lazy(() => import("@/pages/Collection").then(m => ({ default: m.Collection })));
+const Story = lazy(() => import("@/pages/Story").then(m => ({ default: m.Story })));
+const StoryChapter = lazy(() => import("@/pages/StoryChapter").then(m => ({ default: m.StoryChapter })));
+const Decks = lazy(() => import("@/pages/Decks").then(m => ({ default: m.Decks })));
+const Play = lazy(() => import("@/pages/Play").then(m => ({ default: m.Play })));
+const Privacy = lazy(() => import("@/pages/Privacy").then(m => ({ default: m.Privacy })));
+const Terms = lazy(() => import("@/pages/Terms").then(m => ({ default: m.Terms })));
+const About = lazy(() => import("@/pages/About").then(m => ({ default: m.About })));
+const Token = lazy(() => import("@/pages/Token").then(m => ({ default: m.Token })));
+const AgentDev = lazy(() => import("@/pages/AgentDev").then(m => ({ default: m.AgentDev })));
+const Leaderboard = lazy(() => import("@/pages/Leaderboard").then(m => ({ default: m.Leaderboard })));
+const Watch = lazy(() => import("@/pages/Watch").then(m => ({ default: m.Watch })));
+const DeckBuilder = lazy(() => import("@/pages/DeckBuilder").then(m => ({ default: m.DeckBuilder })));
 
 const SentryRoutes = Sentry.withSentryReactRouterV7Routing(Routes);
 
@@ -50,10 +52,20 @@ function PageErrorFallback({ resetError }: { resetError: () => void }) {
   );
 }
 
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#fdfdfb]">
+      <div className="w-8 h-8 border-4 border-[#ffcc00] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 function Guarded({ children }: { children: React.ReactNode }) {
   return (
     <Sentry.ErrorBoundary fallback={PageErrorFallback}>
-      <AuthGuard>{children}</AuthGuard>
+      <Suspense fallback={<PageLoader />}>
+        <AuthGuard>{children}</AuthGuard>
+      </Suspense>
     </Sentry.ErrorBoundary>
   );
 }
@@ -61,7 +73,9 @@ function Guarded({ children }: { children: React.ReactNode }) {
 function Public({ children }: { children: React.ReactNode }) {
   return (
     <Sentry.ErrorBoundary fallback={PageErrorFallback}>
-      {children}
+      <Suspense fallback={<PageLoader />}>
+        {children}
+      </Suspense>
     </Sentry.ErrorBoundary>
   );
 }
@@ -73,7 +87,6 @@ export function App() {
   const { isEmbedded, authToken, isApiKey } = useIframeMode();
   useTelegramAuth();
 
-  // Spectator mode: agent API key received via postMessage → show spectator view
   if (isApiKey && authToken) {
     return (
       <Sentry.ErrorBoundary fallback={PageErrorFallback}>
@@ -85,7 +98,6 @@ export function App() {
   return (
     <BrowserRouter>
       <SentryRoutes>
-        {/* Public */}
         <Route path="/" element={<Public><Home /></Public>} />
         <Route path="/privacy" element={<Public><Privacy /></Public>} />
         <Route path="/terms" element={<Public><Terms /></Public>} />
@@ -95,7 +107,6 @@ export function App() {
         <Route path="/leaderboard" element={<Public><Leaderboard /></Public>} />
         <Route path="/watch" element={<Public><Watch /></Public>} />
 
-        {/* Auth-required */}
         <Route path="/onboarding" element={<Guarded><Onboarding /></Guarded>} />
         <Route path="/collection" element={<Guarded><Collection /></Guarded>} />
         <Route path="/story" element={<Guarded><Story /></Guarded>} />
