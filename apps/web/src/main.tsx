@@ -35,9 +35,8 @@ Sentry.init({
   replaysOnErrorSampleRate: 1.0,
 });
 
-const convex = new ConvexReactClient(
-  import.meta.env.VITE_CONVEX_URL as string,
-);
+const convexUrl = (import.meta.env.VITE_CONVEX_URL as string).trim();
+const convex = new ConvexReactClient(convexUrl);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -32,6 +32,41 @@ const normalizeDeckId = (deckId: string | undefined): string | null => {
   return trimmed;
 };
 
+const resolveDeckCards = (
+  allCards: any[],
+  recipe: Array<{ cardName: string; copies: number }>,
+  minCards = 40,
+) => {
+  const byName = new Map<string, any>();
+  for (const c of allCards ?? []) {
+    byName.set(c.name, c);
+  }
+
+  const quantities = new Map<string, number>();
+  for (const entry of recipe) {
+    const cardDef = byName.get(entry.cardName);
+    if (!cardDef?._id) continue;
+    quantities.set(
+      cardDef._id,
+      (quantities.get(cardDef._id) ?? 0) + Math.max(1, entry.copies ?? 1),
+    );
+  }
+
+  let totalCards = Array.from(quantities.values()).reduce((sum, q) => sum + q, 0);
+  const fallbackPool = (allCards ?? []).filter((card: any) => Boolean(card?._id));
+  let cursor = 0;
+  while (totalCards < minCards && fallbackPool.length > 0) {
+    const fallback = fallbackPool[cursor % fallbackPool.length];
+    quantities.set(fallback._id, (quantities.get(fallback._id) ?? 0) + 1);
+    totalCards += 1;
+    cursor += 1;
+  }
+
+  return Array.from(quantities.entries()).map(([cardDefinitionId, quantity]) => ({
+    cardDefinitionId,
+    quantity,
+  }));
+};
 async function resolveActiveDeckIdForUser(
   ctx: any,
   user: { _id: string; activeDeckId?: string },
@@ -181,24 +216,10 @@ export const selectStarterDeck = mutation({
       throw new Error(`Unknown deck code: ${args.deckCode}`);
     }
 
-    // Build name → cardDef map
     const allCards = await cards.cards.getAllCards(ctx);
-    const byName = new Map<string, any>();
-    for (const c of allCards ?? []) {
-      byName.set(c.name, c);
-    }
-
-    // Resolve recipe entries to card definition IDs
-    const resolvedCards: { cardDefinitionId: string; quantity: number }[] = [];
-    for (const entry of recipe) {
-      const cardDef = byName.get(entry.cardName);
-      if (!cardDef) {
-        throw new Error(`Card not found in database: "${entry.cardName}"`);
-      }
-      resolvedCards.push({
-        cardDefinitionId: cardDef._id,
-        quantity: entry.copies,
-      });
+    const resolvedCards = resolveDeckCards(allCards ?? [], recipe);
+    if (resolvedCards.length === 0) {
+      throw new Error("No cards available to build starter deck.");
     }
 
     // Grant cards to inventory (so saveDeck's ownership check passes)
