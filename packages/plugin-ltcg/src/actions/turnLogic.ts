@@ -82,6 +82,17 @@ export async function playOneTurn(
     return logIfProgress(before, nextView, label);
   };
 
+  const submitActionAndFlush = async (
+    command: GameCommand,
+    label: string,
+  ): Promise<boolean> => {
+    const didApply = await submitAction(command, label);
+    if (!didApply) return false;
+    await clearChain();
+    await refreshView();
+    return true;
+  };
+
   const clearChain = async (): Promise<void> => {
     for (let i = 0; i < MAX_CHAIN_RESPONSE_ATTEMPTS; i += 1) {
       if (!Array.isArray(currentView.value.currentChain) ||
@@ -117,6 +128,9 @@ export async function playOneTurn(
     };
     return String(cardLike.instanceId ?? cardLike.cardId ?? "").trim();
   };
+
+  const isMyTurnAndAlive = (): boolean =>
+    currentView.value.currentTurnPlayer === seat && !currentView.value.gameOver;
 
   const getHandIds = (state: PlayerView): string[] =>
     dedupe(
@@ -185,27 +199,21 @@ export async function playOneTurn(
 
   const setBackrowFromHand = async (ids: string[]): Promise<void> => {
     for (const cardId of ids) {
-      const set = await submitAction(
+      const set = await submitActionAndFlush(
         { type: "SET_SPELL_TRAP", cardId },
         `Set spell/trap ${cardId}`,
       );
-      if (set) {
-        await clearChain();
-        await refreshView();
-      }
+      if (!set) continue;
     }
   };
 
   const castSpellsFromHand = async (ids: string[]): Promise<void> => {
     for (const cardId of ids) {
-      const cast = await submitAction(
+      const cast = await submitActionAndFlush(
         { type: "ACTIVATE_SPELL", cardId },
         `Activated spell ${cardId}`,
       );
-      if (cast) {
-        await clearChain();
-        await refreshView();
-      }
+      if (!cast) continue;
     }
   };
 
@@ -227,8 +235,7 @@ export async function playOneTurn(
 
   const combat = async () => {
     while (
-      currentView.value.currentTurnPlayer === seat &&
-      !currentView.value.gameOver &&
+      isMyTurnAndAlive() &&
       currentView.value.phase === "combat"
     ) {
       const attacker = getBoard(currentView.value)
@@ -286,14 +293,13 @@ export async function playOneTurn(
   await clearChain();
   await refreshView();
 
-  if (currentView.value.currentTurnPlayer !== seat || currentView.value.gameOver) {
+  if (!isMyTurnAndAlive()) {
     return actions;
   }
 
   // Ensure we're in a playable phase.
   while (
-    currentView.value.currentTurnPlayer === seat &&
-    !currentView.value.gameOver &&
+    isMyTurnAndAlive() &&
     !["main", "main2", "combat", "end"].includes(currentView.value.phase)
   ) {
     const moved = await advancePhase();
@@ -323,9 +329,8 @@ export async function playOneTurn(
   }
 
   // ── Enter combat phase ───────────────────────────────────────
-  while (
-    currentView.value.currentTurnPlayer === seat &&
-    !currentView.value.gameOver &&
+    while (
+    isMyTurnAndAlive() &&
     currentView.value.phase !== "combat" &&
     currentView.value.phase !== "end"
   ) {
@@ -348,7 +353,7 @@ export async function playOneTurn(
   }
 
   // ── Resolve phase end / end-turn window.
-  if (currentView.value.currentTurnPlayer === seat && !currentView.value.gameOver) {
+  if (isMyTurnAndAlive()) {
     if (currentView.value.phase === "combat") {
       await clearChain();
       await advancePhase();
@@ -356,16 +361,16 @@ export async function playOneTurn(
     }
 
     await refreshView();
-    if (currentView.value.currentTurnPlayer === seat && !currentView.value.gameOver) {
-      if (currentView.value.phase !== "end") {
-        await advancePhase();
+      if (isMyTurnAndAlive()) {
+        if (currentView.value.phase !== "end") {
+          await advancePhase();
+        }
+        await clearChain();
+        await refreshView();
+        if (isMyTurnAndAlive()) {
+          await endTurn();
+        }
       }
-      await clearChain();
-      await refreshView();
-      if (currentView.value.currentTurnPlayer === seat && !currentView.value.gameOver) {
-        await endTurn();
-      }
-    }
   }
 
   return actions;
