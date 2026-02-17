@@ -1,5 +1,6 @@
 import type { GameState, Seat, Command, EngineEvent, BoardCard } from "../types/index.js";
 import { opponentSeat } from "./phases.js";
+import { expectDefined } from "../internal/invariant.js";
 
 export function decideDeclareAttack(
   state: GameState,
@@ -256,10 +257,10 @@ export function evolveCombat(state: GameState, event: EngineEvent): GameState {
       const board = isHost ? [...newState.hostBoard] : [...newState.awayBoard];
       const attackerIndex = board.findIndex((c) => c.cardId === attackerId);
       if (attackerIndex > -1) {
-        const attacker = board[attackerIndex];
-        if (!attacker) {
-          break;
-        }
+        const attacker = expectDefined(
+          board[attackerIndex],
+          `rules.combat.evolveCombat missing attacker at index ${attackerIndex}`
+        );
 
         board[attackerIndex] = {
           ...attacker,

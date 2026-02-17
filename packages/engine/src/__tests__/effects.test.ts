@@ -121,6 +121,14 @@ describe("executeAction", () => {
     expect(events).toHaveLength(3); // Only 3 cards in deck
   });
 
+  it("DRAW throws engine invariant for corrupted deck slots", () => {
+    const state = createMinimalState();
+    state.hostDeck = [undefined as unknown as string, "deck_card_2"];
+
+    const action: EffectAction = { type: "draw", count: 1 };
+    expect(() => executeAction(state, action, "host", "source_card", [])).toThrow("[engine invariant]");
+  });
+
   it("DAMAGE generates DAMAGE_DEALT to opponent", () => {
     const state = createMinimalState();
     const action: EffectAction = { type: "damage", amount: 500, target: "opponent" };
@@ -421,6 +429,14 @@ describe("executeAction - newly implemented actions", () => {
     const events = executeAction(state, action, "host", "source_card", []);
 
     expect(events).toHaveLength(1); // Only 1 card in hand
+  });
+
+  it("DISCARD throws engine invariant for corrupted hand slots", () => {
+    const state = createMinimalState();
+    state.awayHand = [undefined as unknown as string];
+
+    const action: EffectAction = { type: "discard", count: 1, target: "opponent" };
+    expect(() => executeAction(state, action, "host", "source_card", [])).toThrow("[engine invariant]");
   });
 
   it("SPECIAL_SUMMON generates SPECIAL_SUMMONED event", () => {

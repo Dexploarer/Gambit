@@ -1,4 +1,5 @@
 import type { GameState, Seat, Command, EngineEvent, BoardCard } from "../types/index.js";
+import { expectDefined } from "../internal/invariant.js";
 
 export function decideSummon(
   state: GameState,
@@ -264,8 +265,10 @@ export function evolveSummon(state: GameState, event: EngineEvent): GameState {
       const board = isHost ? [...newState.hostBoard] : [...newState.awayBoard];
       const cardIndex = board.findIndex((c) => c.cardId === cardId);
       if (cardIndex > -1) {
-        const card = board[cardIndex];
-        if (!card) break;
+        const card = expectDefined(
+          board[cardIndex],
+          `rules.summoning.evolveSummon missing card at index ${cardIndex}`
+        );
 
         board[cardIndex] = {
           ...card,

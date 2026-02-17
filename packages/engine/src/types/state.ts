@@ -86,6 +86,7 @@ export interface GameState {
   awayNormalSummonedThisTurn: boolean;
   currentChain: ChainLink[];
   currentPriorityPlayer: Seat | null;
+  currentChainPasser: Seat | null;
   pendingAction: PendingAction | null;
   temporaryModifiers: TemporaryModifier[];
   lingeringEffects: LingeringEffect[];

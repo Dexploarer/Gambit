@@ -30,6 +30,6 @@ export type EngineEvent =
   | { type: "MODIFIER_APPLIED"; cardId: string; field: "attack" | "defense"; amount: number; source: string }
   | { type: "MODIFIER_EXPIRED"; cardId: string; source: string }
   | { type: "CHAIN_STARTED" }
-  | { type: "CHAIN_LINK_ADDED"; cardId: string; seat: Seat; effectIndex: number }
+  | { type: "CHAIN_LINK_ADDED"; cardId: string; seat: Seat; effectIndex: number; targets?: string[] }
   | { type: "CHAIN_RESOLVED" }
   | { type: "CHAIN_PASSED"; seat: Seat };

@@ -9,6 +9,7 @@ import type { GameState, Seat, BoardCard, SpellTrapCard } from "../types/state.j
 import type { EngineEvent } from "../types/events.js";
 import type { EffectAction } from "../types/cards.js";
 import { opponentSeat } from "../rules/phases.js";
+import { expectDefined } from "../internal/invariant.js";
 
 // ── Helper: Find card on board ────────────────────────────────────
 
@@ -99,8 +100,10 @@ function executeDraw(
 
   const actualCount = Math.min(action.count, deck.length);
   for (let i = 0; i < actualCount; i++) {
-    const cardId = deck[i];
-    if (!cardId) continue;
+    const cardId = expectDefined(
+      deck[i],
+      `effects.operations.executeDraw missing deck card at index ${i}`
+    );
     events.push({ type: "CARD_DRAWN", seat: activatingPlayer, cardId });
   }
 
@@ -261,8 +264,11 @@ function executeDiscard(
   // Discard from the end of hand (random would require RNG, so use last cards)
   const actualCount = Math.min(action.count, hand.length);
   for (let i = 0; i < actualCount; i++) {
-    const cardId = hand[hand.length - 1 - i];
-    if (!cardId) continue;
+    const handIndex = hand.length - 1 - i;
+    const cardId = expectDefined(
+      hand[handIndex],
+      `effects.operations.executeDiscard missing hand card at index ${handIndex}`
+    );
     events.push({ type: "CARD_SENT_TO_GRAVEYARD", cardId, from: "hand" });
   }
 

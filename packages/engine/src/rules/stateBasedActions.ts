@@ -1,4 +1,5 @@
 import type { GameState, EngineEvent, Seat } from "../types/index.js";
+import { expectDefined } from "../internal/invariant.js";
 
 export function checkStateBasedActions(state: GameState): EngineEvent[] {
   const events: EngineEvent[] = [];
@@ -89,8 +90,10 @@ export function drawCard(state: GameState, seat: Seat): EngineEvent[] {
   }
 
   // Draw top card from deck
-  const cardId = deck[0];
-  if (!cardId) return events;
+  const cardId = expectDefined(
+    deck[0],
+    `rules.stateBasedActions.drawCard missing deck card for ${seat}`
+  );
   events.push({
     type: "CARD_DRAWN",
     seat,

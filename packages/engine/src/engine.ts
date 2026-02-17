@@ -667,11 +667,6 @@ export function evolve(state: GameState, events: EngineEvent[]): GameState {
         for (const boardKey of ["hostBoard", "awayBoard"] as const) {
           const idx = newState[boardKey].findIndex((c) => c.cardId === cardId);
           if (idx > -1) {
-            const currentCard = newState[boardKey][idx];
-            if (!currentCard) {
-              continue;
-            }
-
             newState[boardKey] = [...newState[boardKey]];
             const existingCard = expectDefined(
               newState[boardKey][idx],
