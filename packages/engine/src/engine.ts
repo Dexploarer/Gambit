@@ -517,26 +517,16 @@ export function decide(state: GameState, command: Command, seat: Seat): EngineEv
 
       // Find the card on the player's board
       const playerBoard = seat === "host" ? state.hostBoard : state.awayBoard;
-      const boardCard = expectDefined(
-        playerBoard.find((c) => c.cardId === cardId),
-        `engine.decide ACTIVATE_EFFECT missing board card ${cardId}`
-      );
+      const boardCard = playerBoard.find((c) => c.cardId === cardId);
+      if (!boardCard) break;
       if (boardCard.faceDown) break;
 
       // Get card definition
-      const cardDef = expectDefined(
-        state.cardLookup[boardCard.definitionId],
-        `engine.decide ACTIVATE_EFFECT missing definition for board card ${boardCard.definitionId}`
-      );
-      const effects = expectDefined(
-        cardDef.effects,
-        `engine.decide ACTIVATE_EFFECT missing effects for card ${boardCard.definitionId}`
-      );
-
-      const effectDef = expectDefined(
-        effects[effectIndex],
-        `engine.decide ACTIVATE_EFFECT missing effect at index ${effectIndex} for card ${boardCard.definitionId}`
-      );
+      const cardDef = state.cardLookup[boardCard.definitionId];
+      if (!cardDef || !cardDef.effects || effectIndex < 0 || effectIndex >= cardDef.effects.length) break;
+      const effects = cardDef.effects;
+      const effectDef = effects[effectIndex];
+      if (!effectDef) break;
       if (effectDef.type !== "ignition") break;
 
       // Check OPT/HOPT
