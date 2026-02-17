@@ -13,6 +13,7 @@ import { TributeSelector } from "./TributeSelector";
 import { AttackTargetSelector } from "./AttackTargetSelector";
 import { GraveyardBrowser } from "./GraveyardBrowser";
 import { GameOverOverlay } from "./GameOverOverlay";
+import { GameMotionOverlay } from "./GameMotionOverlay";
 import { AnimatePresence } from "framer-motion";
 import type { Phase } from "./types";
 
@@ -401,7 +402,9 @@ export function GameBoard({ matchId, seat, onMatchEnd }: GameBoardProps) {
   const opponentBanished = view.opponentBanished ?? [];
 
   return (
-    <div className="h-screen flex flex-col bg-[#fdfdfb]">
+    <div className="relative h-screen flex flex-col bg-[#fdfdfb]">
+      <GameMotionOverlay phase={phase as Phase} isMyTurn={isMyTurn} />
+
       {/* Opponent LP Bar */}
       <div className="px-4 pt-2">
         <LPBar lp={view.opponentLifePoints ?? 8000} maxLp={8000} label="Opponent" side="opponent" />
@@ -566,7 +569,9 @@ export function GameBoard({ matchId, seat, onMatchEnd }: GameBoardProps) {
           type="button"
           onClick={actions.endTurn}
           disabled={!isMyTurn || actions.submitting || isChainPromptOpen}
-          className="tcg-button-primary px-6 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
+          className={`tcg-button-primary px-6 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed ${
+            isMyTurn && !isChainPromptOpen ? "animate-effect-pulse" : ""
+          }`}
         >
           End Turn
         </button>

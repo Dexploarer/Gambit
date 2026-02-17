@@ -803,25 +803,84 @@ export declare const components: {
         "query",
         "internal",
         { hostId: string },
-        any
+        {
+          _creationTime: number;
+          _id: string;
+          awayDeck: Array<string> | null;
+          awayId: string | null;
+          createdAt: number;
+          endReason?: string;
+          endedAt?: number;
+          hostDeck: Array<string>;
+          hostId: string;
+          isAIOpponent: boolean;
+          mode: "pvp" | "story";
+          startedAt?: number;
+          status: "waiting" | "active" | "ended";
+          winner?: "host" | "away";
+        } | null
       >;
       getMatchMeta: FunctionReference<
         "query",
         "internal",
         { matchId: string },
-        any
+        {
+          _creationTime: number;
+          _id: string;
+          awayDeck: Array<string> | null;
+          awayId: string | null;
+          createdAt: number;
+          endReason?: string;
+          endedAt?: number;
+          hostDeck: Array<string>;
+          hostId: string;
+          isAIOpponent: boolean;
+          mode: "pvp" | "story";
+          startedAt?: number;
+          status: "waiting" | "active" | "ended";
+          winner?: "host" | "away";
+        } | null
       >;
       getOpenLobbyByHost: FunctionReference<
         "query",
         "internal",
         { hostId: string },
-        any
+        {
+          _creationTime: number;
+          _id: string;
+          awayDeck: Array<string> | null;
+          awayId: string | null;
+          createdAt: number;
+          endReason?: string;
+          endedAt?: number;
+          hostDeck: Array<string>;
+          hostId: string;
+          isAIOpponent: boolean;
+          mode: "pvp" | "story";
+          startedAt?: number;
+          status: "waiting" | "active" | "ended";
+          winner?: "host" | "away";
+        } | null
       >;
       getOpenPrompt: FunctionReference<
         "query",
         "internal",
         { matchId: string; seat: "host" | "away" },
-        any
+        {
+          _creationTime: number;
+          _id: string;
+          createdAt: number;
+          data?: string;
+          matchId: string;
+          promptType:
+            | "chain_response"
+            | "optional_trigger"
+            | "replay_decision"
+            | "discard";
+          resolved: boolean;
+          resolvedAt?: number;
+          seat: "host" | "away";
+        } | null
       >;
       getPlayerView: FunctionReference<
         "query",
@@ -833,7 +892,15 @@ export declare const components: {
         "query",
         "internal",
         { matchId: string; sinceVersion: number },
-        any
+        Array<{
+          _creationTime: number;
+          _id: string;
+          command: string;
+          createdAt: number;
+          events: string;
+          seat: "host" | "away";
+          version: number;
+        }>
       >;
     };
   };

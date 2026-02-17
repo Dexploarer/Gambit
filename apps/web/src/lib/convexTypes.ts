@@ -3,6 +3,16 @@ export type Seat = "host" | "away";
 export type MatchMode = "pvp" | "story";
 export type MatchStatus = "waiting" | "active" | "ended";
 
+export const cliqueAssignmentStatuses = {
+  assigned: "assigned",
+  alreadyAssigned: "already_assigned",
+  missingStarterDeck: "missing_starter_deck",
+  missingClique: "missing_clique",
+} as const;
+
+export type CliqueAssignmentStatusKind =
+  (typeof cliqueAssignmentStatuses)[keyof typeof cliqueAssignmentStatuses];
+
 export type MatchMeta = {
   _id: string;
   _creationTime: number;
@@ -240,19 +250,24 @@ export type CliqueAssignmentStatusBase = { reason: string };
 
 export type CliqueAssignmentStatus =
   | {
-      status: "assigned";
+      status: (typeof cliqueAssignmentStatuses)["assigned"];
       clique: Clique;
       archetype: string;
+      reason: string;
     }
   | {
-      status: "already_assigned";
+      status: (typeof cliqueAssignmentStatuses)["alreadyAssigned"];
       clique: Clique;
       archetype: string;
+      reason: string;
     }
   | ({
-      status: "missing_starter_deck";
+      status: (typeof cliqueAssignmentStatuses)["missingStarterDeck"];
+      clique: null;
+      archetype: null;
     } & CliqueAssignmentStatusBase)
   | ({
-      status: "missing_clique";
+      status: (typeof cliqueAssignmentStatuses)["missingClique"];
+      clique: null;
       archetype: string;
     } & CliqueAssignmentStatusBase);

@@ -9,7 +9,6 @@ import {
   BattleTransition,
   useStory,
   type DialogueLine,
-  type Stage,
 } from "@/components/story";
 import { GameBoard } from "@/components/game/GameBoard";
 import { type Seat } from "@/components/game/hooks/useGameState";
@@ -46,7 +45,6 @@ type StoryContext = {
   rewardsXp: number;
   firstClearBonus: number;
   opponentName: string;
-  preMatchDialogue: DialogueLine[];
   postMatchWinDialogue: DialogueLine[];
   postMatchLoseDialogue: DialogueLine[];
 };

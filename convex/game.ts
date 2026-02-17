@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import { components } from "./_generated/api";
-import { mutation, query, internalMutation } from "./_generated/server";
+import {
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireUser } from "./auth";
 import { LTCGCards } from "@lunchtable-tcg/cards";
@@ -10,9 +15,9 @@ import { createInitialState, DEFAULT_CONFIG, buildCardLookup } from "@lunchtable
 import type { Command } from "@lunchtable-tcg/engine";
 import { DECK_RECIPES, STARTER_DECKS } from "./cardData";
 
-const cards = new LTCGCards(components.lunchtable_tcg_cards as any);
-const match = new LTCGMatch(components.lunchtable_tcg_match as any);
-const story = new LTCGStory(components.lunchtable_tcg_story as any);
+const cards = new LTCGCards(components.lunchtable_tcg_cards);
+const match = new LTCGMatch(components.lunchtable_tcg_match);
+const story = new LTCGStory(components.lunchtable_tcg_story);
 
 const RESERVED_DECK_IDS = new Set(["undefined", "null", "skip"]);
 const normalizeDeckId = (deckId: string | undefined): string | null => {
@@ -25,6 +30,126 @@ const normalizeDeckId = (deckId: string | undefined): string | null => {
 
 const normalizeDeckRecordId = (deckRecord?: { deckId?: string } | null) =>
   normalizeDeckId(deckRecord?.deckId);
+
+type UserDeckLike = {
+  deckId?: string;
+  deckArchetype?: string;
+};
+
+type DeckCard = {
+  cardDefinitionId: string;
+  quantity?: number;
+};
+
+type DeckWithCards = {
+  cards?: DeckCard[];
+};
+
+type UserDeckSummary = {
+  deckId: string;
+  name: string;
+  deckArchetype?: string;
+  cardCount?: number;
+};
+
+type CardRecord = {
+  _id: string;
+  name: string;
+  cardType?: string;
+  cardDefinitionId?: string;
+  type?: string;
+  quantity?: number;
+  isActive?: boolean;
+  attack?: number;
+  level?: number;
+  temporaryBoosts?: { attack?: number };
+};
+
+type GameCardInstance = {
+  cardId: string;
+  definitionId: string;
+  faceDown?: boolean;
+  canAttack?: boolean;
+  hasAttackedThisTurn?: boolean;
+  turnSummoned?: number;
+};
+
+type MatchEvent = { type?: string; [key: string]: unknown };
+
+type MatchSubmissionResult = {
+  events?: string;
+};
+
+type MatchMetaRecord = {
+  status?: "waiting" | "active" | "ended";
+  hostId?: string;
+  awayId?: string;
+  winner?: "host" | "away" | null;
+  isAIOpponent?: boolean;
+};
+
+type OpenPromptCard = {
+  cardId: string;
+  definitionId: string;
+  faceDown?: boolean;
+  canAttack?: boolean;
+  hasAttackedThisTurn?: boolean;
+};
+
+type MatchViewRecord = {
+  board?: GameCardInstance[];
+  spellTrapZone?: OpenPromptCard[];
+  opponentBoard?: GameCardInstance[];
+  opponentSpellTrapZone?: OpenPromptCard[];
+  currentPhase?: string;
+  currentTurnPlayer?: string;
+  hand?: string[];
+  turnNumber?: number;
+  gameOver?: boolean;
+  players?: {
+    host?: { lifePoints?: number };
+    away?: { lifePoints?: number };
+  };
+  currentChain?: unknown[];
+};
+
+type StoryMatchDoc = {
+  _id: string;
+  matchId: string;
+  userId: string;
+  chapterId: string;
+  stageNumber: number;
+  stageId: string;
+  outcome?: "won" | "lost" | "abandoned" | null;
+  starsEarned?: number;
+  rewardsGold?: number;
+  rewardsXp?: number;
+  firstClearBonus?: number;
+};
+
+type StoryStage = {
+  _id: string;
+  stageNumber: number;
+  preMatchDialogue?: unknown;
+  postMatchWinDialogue?: unknown;
+  postMatchLoseDialogue?: unknown;
+  rewardGold?: unknown;
+  rewardXp?: unknown;
+  firstClearBonus?: unknown;
+  opponentName?: string;
+};
+
+const autoAssignCliqueFromArchetype = async (
+  ctx: MutationCtx,
+  userId: string,
+  archetype: string,
+) => {
+  if (!archetype) return;
+  await ctx.runMutation(internal.cliques.autoAssignUserToCliqueFromArchetype, {
+    userId,
+    archetype,
+  });
+};
 
 const resolveDefaultStarterDeckCode = () => {
   const configured = STARTER_DECKS.find((deck) => DECK_RECIPES[deck.deckCode]);
