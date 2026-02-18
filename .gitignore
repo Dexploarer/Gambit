@@ -1,47 +1,9 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
-
-# Build outputs
-dist/
-build/
+node_modules
+bun.lock
 *.tsbuildinfo
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# OS files
+dist
+coverage
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+.playwright
 
-# IDE
-.vscode/*
-!.vscode/extensions.json
-.idea/
-*.swp
-*.swo
-*~
-
-# Testing
-coverage/
-.nyc_output/
-
-# Convex
-.convex/
-.vercel
+.env.local

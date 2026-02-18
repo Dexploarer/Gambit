@@ -1,37 +1,29 @@
 {
-  "name": "ltcg-v2",
+  "name": "gambit-tcg-generator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.5",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "cd apps/web && bun run build",
-    "dev": "concurrently -n convex,web -c blue,magenta \"bun run dev:convex\" \"bun run dev:web\"",
-    "dev:convex": "convex dev",
-    "dev:web": "cd apps/web && bun run dev",
-    "test": "vitest",
-    "test:once": "vitest run"
+    "lint": "bun run typecheck",
+    "test": "bash ./scripts/test-all.sh",
+    "test:once": "bun run test",
+    "typecheck": "bash ./scripts/typecheck-all.sh",
+    "studio:dev": "bun run --cwd apps/studio dev",
+    "render-worker:dev": "bun run --cwd apps/render-worker dev",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
+    "convex:codegen": "convex codegen"
   },
   "dependencies": {
-    "@lunchtable-tcg/cards": "workspace:*",
-    "@lunchtable-tcg/engine": "workspace:*",
-    "@lunchtable-tcg/guilds": "workspace:*",
-    "@lunchtable-tcg/match": "workspace:*",
-    "@lunchtable-tcg/story": "workspace:*",
-    "@sentry/node": "^10.38.0",
-    "convex": "^1.31.6",
-    "posthog-node": "^5.24.15"
+    "convex": "^1.31.6"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@vercel/blob": "^2.2.0",
-    "concurrently": "^9.2.1",
-    "typescript": "^5.8.0",
-    "vitest": "^4.0.18"
-  },
-  "module": "index.ts"
+    "@types/node": "^24.7.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
 }
