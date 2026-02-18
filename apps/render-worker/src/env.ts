@@ -32,10 +32,12 @@ export function loadDotEnvLocal(): void {
     const contents = readFileSync(filepath, "utf8");
     const parsed = parseDotEnv(contents);
     for (const [key, value] of Object.entries(parsed)) {
-      if (process.env[key] === undefined) {
+      // Bun (and other tooling) may pre-load `.env.local` and set a key to an empty
+      // string when the file contains a trailing `KEY=`. Treat empty strings as
+      // "unset" so we can still hydrate from the first non-empty assignment.
+      if (process.env[key] === undefined || process.env[key]?.trim().length === 0) {
         process.env[key] = value;
       }
     }
-    break;
   }
 }
