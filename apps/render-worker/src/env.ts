@@ -11,7 +11,11 @@ function parseDotEnv(contents: string): Record<string, string> {
     const key = line.slice(0, eq).trim();
     const value = line.slice(eq + 1).trim();
     if (key.length === 0) continue;
-    values[key] = value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+    const unquoted = value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+    // Treat empty assignments (`KEY=`) as "unset" to avoid accidentally overriding
+    // a value defined earlier in the same env file.
+    if (unquoted.length === 0) continue;
+    values[key] = unquoted;
   }
   return values;
 }
@@ -35,4 +39,3 @@ export function loadDotEnvLocal(): void {
     break;
   }
 }
-
