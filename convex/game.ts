@@ -846,12 +846,14 @@ export const submitAction = mutation({
     matchId: v.string(),
     command: v.string(),
     seat: v.union(v.literal("host"), v.literal("away")),
+    expectedVersion: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const result = await match.submitAction(ctx, {
       matchId: args.matchId,
       command: args.command,
       seat: args.seat,
+      expectedVersion: args.expectedVersion,
     });
 
     // Schedule AI turn only if: game is active, it's an AI match, and
@@ -1047,9 +1049,6 @@ function pickAICommand(
 
   // No attacks possible, advance phase
   return { type: "ADVANCE_PHASE" };
-
-  // Default: END_TURN
-  return { type: "END_TURN" };
 }
 
 // ── AI Turn ────────────────────────────────────────────────────────
@@ -1143,6 +1142,11 @@ export const getMatchMeta = query({
 export const getRecentEvents = query({
   args: { matchId: v.string(), sinceVersion: v.number() },
   handler: async (ctx, args) => match.getRecentEvents(ctx, args),
+});
+
+export const getLatestSnapshotVersion = query({
+  args: { matchId: v.string() },
+  handler: async (ctx, args) => match.getLatestSnapshotVersion(ctx, args),
 });
 
 export const getActiveMatchByHost = query({

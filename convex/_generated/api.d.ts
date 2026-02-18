@@ -792,6 +792,7 @@ export declare const components: {
         {
           cardLookup?: string;
           command: string;
+          expectedVersion?: number;
           matchId: string;
           seat: "host" | "away";
         },
@@ -819,6 +820,12 @@ export declare const components: {
           status: "waiting" | "active" | "ended";
           winner?: "host" | "away";
         } | null
+      >;
+      getLatestSnapshotVersion: FunctionReference<
+        "query",
+        "internal",
+        { matchId: string },
+        number
       >;
       getMatchMeta: FunctionReference<
         "query",

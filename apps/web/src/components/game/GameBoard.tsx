@@ -542,7 +542,7 @@ export function GameBoard({ matchId, seat, onMatchEnd }: GameBoardProps) {
       <div className="fixed bottom-4 right-4 flex gap-2">
         <button
           type="button"
-          onClick={() => setShowSurrenderConfirm(false)}
+          onClick={() => setShowSurrenderConfirm(true)}
           className={`text-xs text-[#666] hover:text-[#121212] underline ${
             showSurrenderConfirm ? "hidden" : ""
           }`}

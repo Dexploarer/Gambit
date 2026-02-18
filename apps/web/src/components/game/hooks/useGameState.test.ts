@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlayerView } from "../../../lib/convexTypes";
 
-import { deriveValidActions } from "./useGameState";
+import { deriveValidActions } from "./deriveValidActions";
 
 describe("deriveValidActions", () => {
   it("suppresses summon/set monster actions when monster board is full", () => {

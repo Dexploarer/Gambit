@@ -28,14 +28,21 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         {
-          awayDeck: Array<string>;
-          awayId: string;
+          awayDeck?: Array<string>;
+          awayId?: string;
           hostDeck: Array<string>;
           hostId: string;
           isAIOpponent: boolean;
           mode: "pvp" | "story";
         },
         string,
+        Name
+      >;
+      joinMatch: FunctionReference<
+        "mutation",
+        "internal",
+        { awayDeck: Array<string>; awayId: string; matchId: string },
+        null,
         Name
       >;
       startMatch: FunctionReference<
@@ -51,6 +58,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           cardLookup?: string;
           command: string;
+          expectedVersion?: number;
           matchId: string;
           seat: "host" | "away";
         },
@@ -79,6 +87,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           status: "waiting" | "active" | "ended";
           winner?: "host" | "away";
         } | null,
+        Name
+      >;
+      getLatestSnapshotVersion: FunctionReference<
+        "query",
+        "internal",
+        { matchId: string },
+        number,
         Name
       >;
       getMatchMeta: FunctionReference<
